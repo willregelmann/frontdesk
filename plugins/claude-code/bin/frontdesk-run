@@ -1,0 +1,7 @@
+#!/bin/sh
+# Runs the Python that has frontdesk installed. The MCP server gets it as FRONTDESK_PYTHON;
+# hooks get the plugin's options as CLAUDE_PLUGIN_OPTION_*.
+: "${FRONTDESK_PYTHON:=${CLAUDE_PLUGIN_OPTION_PYTHON:-python3}}"
+: "${FRONTDESK_HOME:=${CLAUDE_PLUGIN_OPTION_HOME:-}}"
+export FRONTDESK_HOME
+exec "$FRONTDESK_PYTHON" "$@"

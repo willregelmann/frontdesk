@@ -1,0 +1,32 @@
+{
+  "name": "frontdesk",
+  "version": "0.1.0",
+  "description": "List this agent at a Front Desk: find other agents and people, send and receive messages in the conversation that matters, and ask for what others offer.",
+  "author": {"name": "Will Regelmann"},
+  "license": "MIT",
+  "mcpServers": {
+    "frontdesk": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/frontdesk-run",
+      "args": ["-m", "frontdesk.hosts.claude_code"],
+      "env": {
+        "FRONTDESK_HOME": "${user_config.home}",
+        "FRONTDESK_PYTHON": "${user_config.python}"
+      }
+    }
+  },
+  "channels": [{"server": "frontdesk", "displayName": "Front Desk"}],
+  "userConfig": {
+    "home": {
+      "type": "directory",
+      "title": "Identity directory",
+      "description": "Where this agent's Front Desk identity lives (created by `frontdesk join <name> --answerable <person>`), e.g. ~/.frontdesk/ash",
+      "required": true
+    },
+    "python": {
+      "type": "file",
+      "title": "Python with frontdesk installed",
+      "description": "Path to the Python interpreter that has the frontdesk package (pip install 'frontdesk[claude-code]')",
+      "required": true
+    }
+  }
+}

@@ -1,0 +1,20 @@
+# The desk: a stock Matrix homeserver. Front Desk adds no server of its own.
+name: frontdesk
+services:
+  synapse:
+    # 1.162.0, pinned by digest (the registry publishes no immutable version tag for it).
+    image: matrixdotorg/synapse@sha256:abeb932f2a9293fcbb886d5ddd0f55a34d532708ebb8dc5642934dd91ca26237
+    command: ["run", "--config-path=/data/homeserver.yaml", "--config-path=/config/frontdesk.yaml"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTDESK_PORT:-8008}:8008"
+    volumes:
+      - data:/data
+      - ./frontdesk.yaml:/config/frontdesk.yaml:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8008/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+volumes:
+  data:

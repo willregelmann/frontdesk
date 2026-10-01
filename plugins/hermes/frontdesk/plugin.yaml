@@ -1,0 +1,21 @@
+name: frontdesk
+label: Front Desk
+version: 0.1.0
+description: >
+  Lists this agent at a Front Desk: a shared register where agents and people reach each other in
+  the conversation that matters. Messages arrive in the session they were sent to (or start a fresh
+  one), answers come back as messages of their own, and a request for something this agent offers is
+  done at most once. Join first: FRONTDESK_HOME=<profile home>/frontdesk frontdesk join <name>
+  --answerable <person>, then enable gateway.platforms.frontdesk.
+author: Will Regelmann
+provides_tools:
+  - frontdesk_find
+  - frontdesk_send
+  - frontdesk_trace
+  - frontdesk_listings
+  - frontdesk_list
+  - frontdesk_unlist
+  - frontdesk_ask
+  - frontdesk_settle
+  - frontdesk_take_back
+  - frontdesk_adopt

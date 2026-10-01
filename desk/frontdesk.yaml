@@ -1,0 +1,38 @@
+# Layered over the generated homeserver.yaml (later --config-path wins).
+
+# Anyone can list themselves: joining needs nobody's permission.
+enable_registration: true
+enable_registration_without_verification: true
+
+# One desk. No federation, and no key lookups against other servers.
+federation_domain_whitelist: []
+trusted_key_servers: []
+
+# Held messages (MSC4140 delayed events) are on whenever this is set.
+max_event_delay_duration: 365d
+experimental_features:
+  msc4140_max_delayed_events_per_user: 1000000
+
+# Nothing limits how often or when messages are sent; the record shows misuse.
+rc_message: {per_second: 10000, burst_count: 100000}
+rc_registration: {per_second: 10000, burst_count: 100000}
+rc_login:
+  address: {per_second: 10000, burst_count: 100000}
+  account: {per_second: 10000, burst_count: 100000}
+  failed_attempts: {per_second: 10000, burst_count: 100000}
+rc_joins:
+  local: {per_second: 10000, burst_count: 100000}
+rc_joins_per_room: {per_second: 10000, burst_count: 100000}
+rc_invites:
+  per_room: {per_second: 10000, burst_count: 100000}
+  per_user: {per_second: 10000, burst_count: 100000}
+  per_issuer: {per_second: 10000, burst_count: 100000}
+rc_room_creation: {per_second: 10000, burst_count: 100000}
+rc_delayed_event_mgmt: {per_second: 10000, burst_count: 100000}
+
+# Sending to a listed channel needs nobody's permission: an invite to a line is
+# accepted for the receiver, agent or person, without them acting.
+auto_accept_invites:
+  enabled: true
+  only_for_direct_messages: false
+  only_from_local_users: true

@@ -58,3 +58,38 @@ async def test_a_name_or_namespace_that_could_collide_is_refused_before_anything
     with pytest.raises(DeskError):
         await Desk.join(DESK, name, tmp_path / "x", kind="person", namespace=namespace)
     assert not (tmp_path / "x").exists()
+
+
+async def test_an_identity_that_writes_itself_into_another_namespaces_register_is_not_listed_there(tmp_path):
+    """Any member may write its own entry into a register room (Foil's probe), so the room alone does
+    not say who belongs in it: a main-desk ``ash`` that lists itself in namespace t1's register must
+    not appear there as t1's ``ash``, and a t1 identity that lists itself in the main register must
+    not appear there at all."""
+    from frontdesk import wire
+    from frontdesk.desk import localpart
+    ns, name = f"test-{uuid.uuid4().hex[:8]}", f"x{uuid.uuid4().hex[:6]}"
+    desks = []
+    try:
+        will = await _join(tmp_path, ns, "will", kind="person")
+        real = await _join(tmp_path, ns, name, answerable="will")
+        boss = await Desk.join(DESK, f"b{name}", tmp_path / "main" / "boss", kind="person")
+        intruder = await Desk.join(DESK, name, tmp_path / "main" / name, answerable=f"b{name}")
+        desks += [will, real, boss, intruder]
+        entry = {"name": name, "kind": "agent", "answerable": will.me, "channels": {}, "offers": {}}
+
+        theirs = await intruder.matrix.resolve_alias(f"#{localpart(wire.REGISTER_LOCALPART, ns)}:{intruder.server}")
+        await intruder.matrix.join(theirs)
+        await intruder.matrix.put_state(theirs, wire.EV_IDENTITY, intruder.me, entry)
+        ours = await real.matrix.resolve_alias(f"#{wire.REGISTER_LOCALPART}:{real.server}")
+        await real.matrix.join(ours)
+        await real.matrix.put_state(ours, wire.EV_IDENTITY, real.me, entry)
+        will._listings.clear()
+        boss._listings.clear()
+
+        assert {(e.name, e.identity) for e in await will.find()} == {("will", will.me), (name, real.me)}
+        assert await will.find(intruder.me) == []
+        assert real.me not in {e.identity for e in await boss.find()}
+    finally:
+        for desk in desks:
+            await desk.leave() if desk.namespace == "" else None
+            await desk.close()

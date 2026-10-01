@@ -42,6 +42,18 @@ def check_name(what: str, value: str) -> str:
     return value
 
 
+def listed_name(identity: str, namespace: str = "") -> Optional[str]:
+    """The name a register shows for ``identity``, from its verified user id and never from its own
+    entry. A namespace's register lists only ids under that namespace's prefix, and the main register
+    only ids with no namespace at all: anyone may write their own entry into any register room, so the
+    room alone does not say who belongs in it."""
+    local = identity[1:].split(":", 1)[0]
+    if namespace:
+        prefix = f"{namespace}."
+        return local[len(prefix):] if local.startswith(prefix) and "." not in local[len(prefix):] else None
+    return None if "." in local else local
+
+
 def localpart(name: str, namespace: str = "") -> str:
     """Where a name lives on the desk. Each namespace has its own names and its own register, so
     nothing joined in one is ever listed, found or reachable by name in another."""
@@ -201,11 +213,13 @@ class Desk(Requests):
             raise DeskError(f"the register could not be updated, so this is not listed: {exc}") from exc
         self._listings.pop(self.me, None)
 
-    @staticmethod
-    def _to_listing(identity: str, content: dict, there: Optional[bool]) -> Optional[Listing]:
+    def _to_listing(self, identity: str, content: dict, there: Optional[bool]) -> Optional[Listing]:
         if not content or content.get("left") or not content.get("name"):
             return None
-        return Listing(identity=identity, name=content["name"], kind=content.get("kind", "unknown"),
+        name = listed_name(identity, self.namespace)
+        if name is None:     # an identity from another namespace (or none) that wrote itself in here
+            return None
+        return Listing(identity=identity, name=name, kind=content.get("kind", "unknown"),
                        answerable=content.get("answerable"), channels=content.get("channels") or {},
                        offers=content.get("offers") or {}, there=there)
 

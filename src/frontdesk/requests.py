@@ -206,27 +206,38 @@ class Requests:
         """Close a request and say so to whoever asked. Only one caller ever closes a request."""
         if not self.ledger.move_request(ref, from_states, result, detail=detail):
             return
+        await self._send_outcome(ref, arrival.from_channel if arrival is not None else None)
+
+    async def _send_outcome(self, ref: str, asker_channel: Optional[str] = None) -> None:
+        """Send the outcome of a closed request. Safe to call again until the desk has it: the
+        transaction id is fixed per request, so a retry never produces a second outcome."""
         request = self.ledger.request(ref)
-        if arrival is None:
-            row = self.ledger.inbox_row(ref)
-            stored = json.loads(row["arrival"]) if row else {}
-            asker_channel = stored.get("from_channel")
-        else:
-            asker_channel = arrival.from_channel
-        agreed = request["agreed_by"]
-        text = f"{request['offer']}: {result.replace('_', ' ')}" + (f". {detail}" if detail else "")
         msg_id = f"out-{ref}"
-        self.ledger.log_attempt(msg_id, wire.OUTCOME, request["asker"], asker_channel, None, None)
+        attempt = self.ledger.attempt(msg_id)
+        if attempt is not None:
+            asker_channel = attempt["to_channel"]
+        else:
+            if asker_channel is None:
+                row = self.ledger.inbox_row(ref)
+                asker_channel = (json.loads(row["arrival"]) if row else {}).get("from_channel")
+            self.ledger.log_attempt(msg_id, wire.OUTCOME, request["asker"], asker_channel, None, None)
+        result, detail = request["state"], request["detail"]
+        text = f"{request['offer']}: {result.replace('_', ' ')}" + (f". {detail}" if detail else "")
         try:
             sent = await self.matrix.send(request["room_id"], "m.room.message", msg_id, wire.message_content(
                 text, kind=wire.OUTCOME, to=asker_channel, sender_channel=None, arrive=wire.WAKE, msg_id=msg_id,
-                answers=ref, result=result, detail=detail, asked=request["asker"], agreed=agreed,
+                answers=ref, result=result, detail=detail, asked=request["asker"], agreed=request["agreed_by"],
                 offer=request["offer"]))
             self.ledger.update_attempt(msg_id, state=wire.ACCEPTED, reason=None, room_id=request["room_id"],
                                        event_id=sent["event_id"])
         except (MatrixError, httpx.HTTPError) as exc:
             self.ledger.update_attempt(msg_id, reason=f"the desk did not take it: {exc}")
-            logger.warning("outcome of %s could not be sent: %s", ref, exc)
+            logger.warning("outcome of %s could not be sent; it is sent again later: %s", ref, exc)
+
+    async def _resend_outcomes(self) -> None:
+        """Every closed request whose outcome the desk does not have yet: never silence."""
+        for request in self.ledger.unsent_outcomes(wire.DONE, wire.FAILED, wire.REFUSED, wire.EXPIRED):
+            await self._send_outcome(request["ref"])
 
     async def _expire_requests(self) -> None:
         for request in self.ledger.requests_in(*_OPEN):

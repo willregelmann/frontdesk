@@ -250,3 +250,9 @@ class Ledger:
     def requests_in(self, *states: str) -> list[sqlite3.Row]:
         marks = ", ".join("?" for _ in states)
         return self._all(f"SELECT * FROM requests WHERE state IN ({marks})", *states)
+
+    def unsent_outcomes(self, *closed: str) -> list[sqlite3.Row]:
+        """Closed requests whose outcome the desk has not taken (no attempt yet, or one without an event)."""
+        marks = ", ".join("?" for _ in closed)
+        return self._all(f"SELECT r.* FROM requests r LEFT JOIN outbox o ON o.msg_id = 'out-' || r.ref "
+                         f"WHERE r.state IN ({marks}) AND o.event_id IS NULL", *closed)

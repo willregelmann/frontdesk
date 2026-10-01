@@ -82,8 +82,8 @@ async def hermes(people, tmp_path):
         "echo": {"description": "Says back what it was given", "agree": "self", "listed": True,
                  "command": ["sh", "-c", "cat"]}}))
     joined = subprocess.run(
-        [f"{HERMES}/.venv/bin/python", "-m", "frontdesk.cli", "join", f"ash-{wren.profile['name'][-8:]}",
-         "--answerable", wren.profile["answerable"], "--desk", DESK],
+        [f"{HERMES}/.venv/bin/python", "-m", "frontdesk.cli", "join", "ash",
+         "--answerable", wren.profile["answerable"], "--desk", DESK, "--namespace", people.namespace],
         env={**gateway.env(), "FRONTDESK_HOME": str(gateway.home / "frontdesk")}, capture_output=True, text=True)
     assert joined.returncode == 0, joined.stderr
     ash = joined.stdout.split()[0]

@@ -15,6 +15,7 @@ respectively, where the map needs a log with a place per reader).
 |---|---|
 | Identity | A Matrix user. Its proof is the account's password and access token, held by the host in `credentials.json`. |
 | The register | One public room, `#frontdesk:<server>`. Each identity's entry is a state event `io.frontdesk.identity` whose state key is its own user id; the homeserver itself refuses anyone else writing it. |
+| Namespace | A separate register and separate names on the same desk, chosen at join and fixed for the identity's life: `ash` joined in namespace `t1` is the Matrix user `@t1.ash` listed in `#t1.frontdesk`. It finds, reaches and is reached by only its own namespace, so tests and trials never appear in the main register. Names and namespaces are `[a-z0-9_-]`, so the dot cannot be forged. |
 | Channel | A handle the host mints (`ch_…`), listed in the identity's entry. `default` always exists. |
 | A line | A private room between two conversations. Messages to a channel travel down a line; the first message to someone's default channel opens a new one. |
 | Message | An ordinary `m.room.message` with an `io.frontdesk` block: id, kind, `to`, `from`, `arrive` (wake or wait), `answers`, `expires`, `due`, `seen`. A message a person types has no block and means: from them, waking, to whatever this line reaches. |

@@ -38,5 +38,7 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 FRONTDESK_TEST_HERMES=/path/to/hermes-agent .venv/bin/python -m pytest   # + a live Hermes gateway
 ```
 
-Every test runs against a real desk. The Claude Code tests drive the real MCP server and hook
+Every test runs against a real desk, each in a namespace of its own (`test-<random>`), so tests
+never list anything in the main register. A trial can do the same: `frontdesk join ash --namespace
+trial --answerable will` (and `will` joined in `trial` too). The Claude Code tests drive the real MCP server and hook
 command; the Hermes tests start a real `hermes gateway run` with a scripted model.

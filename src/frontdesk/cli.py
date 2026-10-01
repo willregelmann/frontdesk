@@ -34,7 +34,7 @@ def _print(value) -> None:
 async def _join(args) -> int:
     home = home_for(args.name)
     desk = await Desk.join(args.desk, args.name, home, kind="person" if args.person else "agent",
-                           answerable=args.answerable)
+                           answerable=args.answerable, namespace=args.namespace)
     print(f"{desk.me} is listed. Its proof is kept in {home}.")
     if args.person:
         _print(desk.proof_for_a_chat_client())
@@ -98,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
     join.add_argument("--person", action="store_true", help="a person, not an agent")
     join.add_argument("--answerable", help="the listed person answerable for this agent")
     join.add_argument("--desk", default=os.environ.get("FRONTDESK_DESK", DEFAULT_DESK))
+    join.add_argument("--namespace", default=os.environ.get("FRONTDESK_NAMESPACE", ""),
+                      help="list it in a separate register (tests, trials), never the main one")
 
     find = sub.add_parser("find", help="who is listed")
     find.add_argument("name", nargs="?")

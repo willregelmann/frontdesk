@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import secrets
 from dataclasses import asdict
 from pathlib import Path
@@ -29,6 +30,22 @@ logger = logging.getLogger("frontdesk")
 
 LATE_MS = 60_000              # beyond this, something that happened after its time says so
 _LISTING_TTL_S = 10.0
+_NAME = re.compile(r"[a-z0-9_-]+")
+
+
+def check_name(what: str, value: str) -> str:
+    """Names and namespaces are plain words. A dot is what joins them on the desk, so neither may
+    contain one: otherwise ``t1.ash`` in the main register is ``ash`` in namespace ``t1``."""
+    value = value.lower()
+    if not _NAME.fullmatch(value):
+        raise DeskError(f"{what} {value!r} may only use a-z, 0-9, '_' and '-'")
+    return value
+
+
+def localpart(name: str, namespace: str = "") -> str:
+    """Where a name lives on the desk. Each namespace has its own names and its own register, so
+    nothing joined in one is ever listed, found or reachable by name in another."""
+    return f"{namespace}.{name}" if namespace else name
 
 
 class DeskError(Exception):
@@ -61,6 +78,7 @@ class Desk(Requests):
         self._creds = json.loads(creds_path.read_text())
         self.me: str = self._creds["user_id"]
         self.server = self.me.split(":", 1)[1]
+        self.namespace: str = self._creds.get("namespace", "")
         self.seat = seat
         self.ledger = Ledger(self.state_dir / "ledger.db")
         self.matrix = Matrix(self._creds["homeserver"], self._creds["access_token"])
@@ -73,9 +91,13 @@ class Desk(Requests):
 
     @classmethod
     async def join(cls, homeserver: str, name: str, state_dir: Path | str, *, kind: str = "agent",
-                   answerable: Optional[str] = None, seat: str = "main") -> "Desk":
-        """List a new identity. An agent names the listed person answerable for it."""
+                   answerable: Optional[str] = None, seat: str = "main", namespace: str = "") -> "Desk":
+        """List a new identity. An agent names the listed person answerable for it. ``namespace``
+        keeps it out of the main register (tests, trials): it is listed, found and reached only by
+        others in the same namespace, and fixed for the life of the identity."""
         state_dir = Path(state_dir)
+        name = check_name("name", name)
+        namespace = check_name("namespace", namespace) if namespace else ""
         if (state_dir / "credentials.json").exists():
             raise DeskError(f"{state_dir} already holds an identity")
         if kind not in ("agent", "person"):
@@ -85,7 +107,7 @@ class Desk(Requests):
         matrix = Matrix(homeserver)
         password = secrets.token_urlsafe(32)
         try:
-            data = await matrix.register(name.lower(), password)
+            data = await matrix.register(localpart(name, namespace), password)
         except MatrixError as exc:
             if exc.errcode == "M_USER_IN_USE":
                 raise DeskError(f"the name {name!r} is taken") from exc
@@ -97,7 +119,8 @@ class Desk(Requests):
         fd = os.open(state_dir / "credentials.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as fh:
             json.dump({"homeserver": homeserver, "user_id": data["user_id"], "password": password,
-                       "access_token": data["access_token"], "device_id": data["device_id"]}, fh)
+                       "access_token": data["access_token"], "device_id": data["device_id"],
+                       "namespace": namespace}, fh)
         desk = cls(state_dir, seat=seat)
         try:
             if answerable:
@@ -105,10 +128,10 @@ class Desk(Requests):
                 if person is None or person.kind != "person":
                     raise DeskError(f"{answerable!r} is not a listed person")
                 answerable = person.identity
-            desk.ledger.put("profile", json.dumps({"name": name.lower(), "kind": kind, "answerable": answerable}))
+            desk.ledger.put("profile", json.dumps({"name": name, "kind": kind, "answerable": answerable}))
             await desk._publish()
             if kind == "agent":   # in a person's chat client an agent is told apart at a glance
-                await desk.matrix.set_display_name(desk.me, f"{name.lower()} (agent)")
+                await desk.matrix.set_display_name(desk.me, f"{name} (agent)")
         except BaseException:
             await desk.close()
             raise
@@ -133,7 +156,7 @@ class Desk(Requests):
     # ── the register ─────────────────────────────────────────────────────────────────────────────
 
     def _resolve(self, name: str) -> str:
-        return name if name.startswith("@") else f"@{name.lower()}:{self.server}"
+        return name if name.startswith("@") else f"@{localpart(name.lower(), self.namespace)}:{self.server}"
 
     @property
     def profile(self) -> dict:
@@ -143,12 +166,14 @@ class Desk(Requests):
         room = self.ledger.get("register")
         if room:
             return room
-        alias = f"#{wire.REGISTER_LOCALPART}:{self.server}"
+        register = localpart(wire.REGISTER_LOCALPART, self.namespace)
+        alias = f"#{register}:{self.server}"
         room = await self.matrix.resolve_alias(alias)
         if room is None:
             try:
                 room = await self.matrix.create_room(
-                    preset="public_chat", room_alias_name=wire.REGISTER_LOCALPART, name="Front Desk register",
+                    preset="public_chat", room_alias_name=register,
+                    name=f"Front Desk register ({self.namespace})" if self.namespace else "Front Desk register",
                     power_level_content_override={"events": {wire.EV_IDENTITY: 0}})
             except MatrixError as exc:
                 if exc.errcode != "M_ROOM_IN_USE":

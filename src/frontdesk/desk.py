@@ -214,6 +214,9 @@ class Desk(Requests):
         self._listings.pop(self.me, None)
 
     def _to_listing(self, identity: str, content: dict, there: Optional[bool]) -> Optional[Listing]:
+        # The name comes from the verified user id (listed_name), never the entry's own "name", which
+        # is only what the identity says about itself. "kind" can only ever be self-declared: it is
+        # passed on as a claim (see wire.describe).
         if not content or content.get("left") or not content.get("name"):
             return None
         name = listed_name(identity, self.namespace)

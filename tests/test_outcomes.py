@@ -24,13 +24,16 @@ async def _outcomes(desk, conversation):
 async def test_an_outcome_the_desk_did_not_take_is_sent_again(people):
     wren, ash = await people("wren"), await people("ash")
     await ash.offer("ping", "Answers pong", _ping)
-    real_send, dropped = ash.matrix.send, []
+    real_send, dropped, sent = ash.matrix.send, [], []
 
     async def flaky_send(room, event_type, txn_id, content, **kw):
         if str(txn_id).startswith("out-") and not dropped:
             dropped.append(txn_id)
             raise httpx.ConnectError("the desk was away for a moment")
-        return await real_send(room, event_type, txn_id, content, **kw)
+        event_id = await real_send(room, event_type, txn_id, content, **kw)
+        if str(txn_id).startswith("out-"):
+            sent.append(txn_id)
+        return event_id
 
     ash.matrix.send = flaky_send
     await wren.ask(ash.me, "ping", conversation="w1")
@@ -40,6 +43,9 @@ async def test_an_outcome_the_desk_did_not_take_is_sent_again(people):
         await ash.pump()
         await wren.pump()
 
+    # Count sends, not arrivals: the homeserver drops a repeated txn id for a while (Synapse: 30 min),
+    # so a desk that re-sent every tick would still show one arrival here and a fresh one later.
+    assert sent == [dropped[0]], sent
     outcomes = [a for a in await wren.take("w1") if a.kind == wire.OUTCOME]
     assert len(outcomes) == 1 and outcomes[0].outcome["result"] == wire.DONE
 

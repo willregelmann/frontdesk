@@ -175,9 +175,12 @@ class Desk(Requests):
 
     @staticmethod
     def _to_listing(identity: str, content: dict, there: Optional[bool]) -> Optional[Listing]:
+        # The name is the verified user id's localpart, which the homeserver guarantees; the entry's
+        # own "name" is only what the identity says about itself, so it is never shown as who it is.
+        # "kind" can only ever be self-declared: it is passed on as a claim (see wire.describe).
         if not content or content.get("left") or not content.get("name"):
             return None
-        return Listing(identity=identity, name=content["name"], kind=content.get("kind", "unknown"),
+        return Listing(identity=identity, name=wire.name_of(identity), kind=content.get("kind", "unknown"),
                        answerable=content.get("answerable"), channels=content.get("channels") or {},
                        offers=content.get("offers") or {}, there=there)
 
@@ -574,7 +577,7 @@ class Desk(Requests):
         late = max(0, sent_at - int(block["due"])) if block.get("due") else 0
         arrival = Arrival(
             id=str(block["id"]), ref=event["event_id"], line=room_id, kind=str(block["kind"]), sender=sender,
-            sender_name=listing.name if listing else sender, sender_kind=listing.kind if listing else "unknown",
+            sender_name=wire.name_of(sender), sender_kind=listing.kind if listing else "unknown",
             from_channel=block.get("from"), to_channel=str(block.get("to") or line["my_channel"] or wire.DEFAULT_CHANNEL),
             text=str(event["content"].get("body") or ""), arrive=block["arrive"], sent_at=sent_at,
             answers=block.get("answers"), late_by_ms=late if late > LATE_MS else 0,

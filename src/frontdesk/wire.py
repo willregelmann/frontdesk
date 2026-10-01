@@ -32,6 +32,11 @@ DONE = "done"
 AGREE_NOBODY, AGREE_SELF = "nobody", "self"
 
 
+def name_of(identity: str) -> str:
+    """The name an identity is shown by: its user id's localpart, which only the homeserver assigns."""
+    return identity[1:].split(":", 1)[0] if identity.startswith("@") else identity
+
+
 def now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -136,7 +141,7 @@ def describe(arrival: Arrival) -> tuple[dict[str, str], str]:
     """How an arrival looks to an agent, the same on every host: attributes the desk vouches for,
     and the sender's own words kept apart from them."""
     attrs = {"kind": _LABELS.get(arrival.kind, arrival.kind), "from": arrival.sender_name,
-             "from_kind": arrival.sender_kind, "ref": arrival.ref,
+             "from_id": arrival.sender, "from_says_it_is": arrival.sender_kind, "ref": arrival.ref,
              "sent": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(arrival.sent_at / 1000))}
     if arrival.answers:
         attrs["answers"] = arrival.answers

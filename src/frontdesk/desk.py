@@ -379,7 +379,10 @@ class Desk(Requests):
                 if any(d["delay_id"] == row["delay_id"] for d in await self.matrix.delayed()):
                     return Trace(id=msg_id, state=wire.HELD, held_until=row["held_until"])
                 return Trace(id=msg_id, state=wire.ACCEPTED, held_until=row["held_until"])
-            statuses = await self.matrix.references(row["room_id"], row["event_id"], wire.EV_STATUS)
+            # Only the receiver says what became of it: the sender and anyone watching the line can
+            # write a status event too, and theirs is not the receiver taking it in.
+            statuses = [s for s in await self.matrix.references(row["room_id"], row["event_id"], wire.EV_STATUS)
+                        if s.get("sender") == row["to_identity"]]
         except (MatrixError, httpx.HTTPError) as exc:
             raise DeskError(f"the desk could not be asked: {exc}") from exc
         if statuses:

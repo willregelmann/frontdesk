@@ -93,3 +93,15 @@ async def test_an_identity_that_writes_itself_into_another_namespaces_register_i
         for desk in desks:
             await desk.leave() if desk.namespace == "" else None
             await desk.close()
+
+
+def test_a_register_lists_only_its_own_namespace_by_the_name_in_the_id():
+    """``listed_name`` decides who a register lists. Frontdesk's own join can't make ``@t1.x.ash``, but a
+    raw Matrix /register can (Synapse allows dots), so a nested dot is refused rather than shown."""
+    from frontdesk.desk import listed_name
+    assert listed_name("@t1.ash:d", "t1") == "ash"
+    assert listed_name("@ash:d", "t1") is None             # the main desk's ash, written into t1's room
+    assert listed_name("@t2.ash:d", "t1") is None          # another namespace
+    assert listed_name("@t1.x.ash:d", "t1") is None        # nested dot: never a frontdesk identity
+    assert listed_name("@ash:d") == "ash"
+    assert listed_name("@t1.ash:d") is None                # a namespaced id in the main register

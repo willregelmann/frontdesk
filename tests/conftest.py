@@ -11,7 +11,8 @@ import pytest
 
 from frontdesk import Desk
 
-DESK = os.environ.get("FRONTDESK_TEST_DESK", "http://127.0.0.1:8008")
+# Never the real desk (desk/up.sh, :8008): start a throwaway one with ``desk/up.sh --test``.
+DESK = os.environ.get("FRONTDESK_TEST_DESK", "http://127.0.0.1:8018")
 
 
 def _desk_is_up() -> bool:
@@ -23,7 +24,7 @@ def _desk_is_up() -> bool:
 
 def pytest_collection_modifyitems(config, items):
     if not _desk_is_up():
-        skip = pytest.mark.skip(reason=f"no desk at {DESK}; start one with desk/up.sh")
+        skip = pytest.mark.skip(reason=f"no desk at {DESK}; start one with desk/up.sh --test")
         for item in items:
             item.add_marker(skip)
 

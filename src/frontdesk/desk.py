@@ -130,8 +130,11 @@ class Desk(Requests):
                 answerable = person.identity
             desk.ledger.put("profile", json.dumps({"name": name, "kind": kind, "answerable": answerable}))
             await desk._publish()
-            if kind == "agent":   # in a person's chat client an agent is told apart at a glance
-                await desk.matrix.set_display_name(desk.me, f"{name} (agent)")
+            # In a person's chat client an agent is told apart at a glance, and so is anyone joined
+            # in a namespace: a trial's Will must never look like the real one.
+            tags = [t for t in ("agent" if kind == "agent" else "", namespace) if t]
+            if tags:
+                await desk.matrix.set_display_name(desk.me, f"{name} ({', '.join(tags)})")
         except BaseException:
             await desk.close()
             raise

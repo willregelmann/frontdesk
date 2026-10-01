@@ -39,6 +39,14 @@ async def test_the_same_name_in_two_namespaces_is_two_identities_that_never_see_
             await desk.close()
 
 
+async def test_a_person_in_a_namespace_never_looks_like_the_same_name_outside_it(people):
+    will = await people("will", kind="person")
+    ash = await people("ash")
+    shown = lambda desk: desk.matrix.call("GET", f"/v3/profile/{desk.me}/displayname")
+    assert (await shown(will))["displayname"] == f"will ({people.namespace})"
+    assert (await shown(ash))["displayname"] == f"ash (agent, {people.namespace})"
+
+
 async def test_a_namespaced_register_holds_nothing_from_the_main_one(people):
     keeper = await people("keeper", kind="person")
     listed = {e.identity for e in await keeper.find()}

@@ -2,6 +2,9 @@
 # Start the desk. Generates the homeserver's keys and base config on first run.
 set -euo pipefail
 cd "$(dirname "$0")"
+if [ "${1:-}" = "--test" ]; then   # a throwaway desk for tests and mutation runs, never the real one
+  export COMPOSE_PROJECT_NAME=frontdesk-test FRONTDESK_PORT="${FRONTDESK_PORT:-8018}"
+fi
 SERVER_NAME="${FRONTDESK_SERVER_NAME:-frontdesk.localhost}"
 if ! docker compose run --rm --no-deps --entrypoint test synapse -f /data/homeserver.yaml 2>/dev/null; then
   docker compose run --rm --no-deps \

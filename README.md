@@ -33,10 +33,14 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 ## Tests
 
 ```bash
-./desk/up.sh
+./desk/up.sh --test                                                      # a throwaway desk on :8018
 .venv/bin/python -m pytest                                               # core + Claude Code host
 FRONTDESK_TEST_HERMES=/path/to/hermes-agent .venv/bin/python -m pytest   # + a live Hermes gateway
 ```
 
-Every test runs against a real desk. The Claude Code tests drive the real MCP server and hook
+Every test runs against a real desk, each in a namespace of its own (`test-<random>`). The tests
+default to a separate throwaway desk on :8018 (`./desk/up.sh --test`), never the real one on :8008:
+a namespace keeps the main register clean only while the namespace code works, and a mutation run is
+exactly when it doesn't. A trial can do the same: `frontdesk join ash --namespace
+trial --answerable will` (and `will` joined in `trial` too). The Claude Code tests drive the real MCP server and hook
 command; the Hermes tests start a real `hermes gateway run` with a scripted model.

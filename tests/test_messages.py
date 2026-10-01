@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from frontdesk import wire
+from frontdesk.desk import listed_name
 from frontdesk.matrix import MatrixError
 from frontdesk.wire import now_ms
 from tests.conftest import until
@@ -259,16 +260,16 @@ async def test_who_a_message_is_from_is_the_verified_id_never_the_senders_own_en
     await until(lambda: ash.host.woken, ash)
     [arrival] = await ash.take("fresh-1")
     attrs, _ = wire.describe(arrival)
-    assert attrs["from"] == wire.name_of(mallory.me) != wire.name_of(will.me)
+    # The name the register lists mallory by (namespace prefix stripped), never the name it wrote.
+    assert attrs["from"] == "mallory" == listed_name(mallory.me, ash.namespace)
     assert attrs["from_id"] == mallory.me
     assert "from_kind" not in attrs and attrs["from_says_it_is"] == "person"   # passed on as a claim only
-    assert f'from="{wire.name_of(mallory.me)}"' in wire.render(arrival)
+    assert 'from="mallory"' in wire.render(arrival)
 
     [found] = await ash.find(mallory.me)
-    assert found.name == wire.name_of(mallory.me)
-    named_will = [entry.identity for entry in await ash.find() if entry.name == wire.name_of(will.me)]
+    assert found.name == "mallory"
+    named_will = [entry.identity for entry in await ash.find() if entry.name == "will"]
     assert named_will == [will.me]
-
 
 async def test_a_sender_with_no_listing_is_shown_by_its_full_id(people):
     """With no register entry to go by, the sender is shown as its whole verified user id: a bare name
@@ -283,3 +284,16 @@ async def test_a_sender_with_no_listing_is_shown_by_its_full_id(people):
 
     assert arrival.sender_name == mallory.me and arrival.sender_kind == "unknown"
     assert f'from="{mallory.me}"' in wire.render(arrival)
+
+
+async def test_the_kind_shown_is_what_the_sender_says_it_is(people):
+    """A person is passed on as saying it is a person and an agent as an agent: the claim is carried
+    through, not replaced by a constant (Wren's arm: a literal "agent" passed every other test)."""
+    will = await people("will", kind="person")
+    wren, ash = await people("wren"), await people("ash")
+    await will.send(ash.me, "from a person", conversation="p")
+    await wren.send(ash.me, "from an agent", conversation="a")
+    await until(lambda: len(ash.host.woken) >= 2, ash)
+    heads = {a.text: wire.render(a) for ch in list(ash.host.woken) for a in await ash.take(ch)}
+    assert 'from_says_it_is="person"' in heads["from a person"]
+    assert 'from_says_it_is="agent"' in heads["from an agent"]

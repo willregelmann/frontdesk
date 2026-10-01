@@ -32,11 +32,6 @@ DONE = "done"
 AGREE_NOBODY, AGREE_SELF = "nobody", "self"
 
 
-def name_of(identity: str) -> str:
-    """The name an identity is shown by: its user id's localpart, which only the homeserver assigns."""
-    return identity[1:].split(":", 1)[0] if identity.startswith("@") else identity
-
-
 def now_ms() -> int:
     return int(time.time() * 1000)
 

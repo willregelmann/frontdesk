@@ -577,7 +577,7 @@ class Desk(Requests):
         late = max(0, sent_at - int(block["due"])) if block.get("due") else 0
         arrival = Arrival(
             id=str(block["id"]), ref=event["event_id"], line=room_id, kind=str(block["kind"]), sender=sender,
-            sender_name=wire.name_of(sender), sender_kind=listing.kind if listing else "unknown",
+            sender_name=listing.name if listing else sender, sender_kind=listing.kind if listing else "unknown",
             from_channel=block.get("from"), to_channel=str(block.get("to") or line["my_channel"] or wire.DEFAULT_CHANNEL),
             text=str(event["content"].get("body") or ""), arrive=block["arrive"], sent_at=sent_at,
             answers=block.get("answers"), late_by_ms=late if late > LATE_MS else 0,

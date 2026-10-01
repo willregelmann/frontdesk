@@ -268,3 +268,18 @@ async def test_who_a_message_is_from_is_the_verified_id_never_the_senders_own_en
     assert found.name == wire.name_of(mallory.me)
     named_will = [entry.identity for entry in await ash.find() if entry.name == wire.name_of(will.me)]
     assert named_will == [will.me]
+
+
+async def test_a_sender_with_no_listing_is_shown_by_its_full_id(people):
+    """With no register entry to go by, the sender is shown as its whole verified user id: a bare name
+    could pass for a listed identity of that name, and would hide a namespace (``t1.x``)."""
+    mallory, ash = await people("mallory"), await people("ash")
+    await mallory.matrix.put_state(await mallory._register_room(), wire.EV_IDENTITY, mallory.me, {})
+    mallory._listings.clear()
+
+    await mallory.send(ash.me, "hello")
+    await until(lambda: ash.host.woken, ash)
+    [arrival] = await ash.take("fresh-1")
+
+    assert arrival.sender_name == mallory.me and arrival.sender_kind == "unknown"
+    assert f'from="{mallory.me}"' in wire.render(arrival)

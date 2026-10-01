@@ -23,10 +23,11 @@ def _desk_is_up() -> bool:
 
 
 def pytest_collection_modifyitems(config, items):
+    # No desk is an error, never a skip: a skipped suite exits 0, which reads as a pass to anything
+    # that only looks at the exit code, and a check that can't go red proves nothing.
     if not _desk_is_up():
-        skip = pytest.mark.skip(reason=f"no desk at {DESK}; start one with desk/up.sh --test")
-        for item in items:
-            item.add_marker(skip)
+        pytest.exit(f"no desk at {DESK}: start one with desk/up.sh --test, or point FRONTDESK_TEST_DESK "
+                    "at one. The tests need a real desk and do not run without it.", returncode=4)
 
 
 class RecordingHost:

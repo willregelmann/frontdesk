@@ -11,7 +11,8 @@ import pytest
 
 from frontdesk import Desk
 
-DESK = os.environ.get("FRONTDESK_TEST_DESK", "http://127.0.0.1:8008")
+# Never the real desk (desk/up.sh, :8008): start a throwaway one with ``desk/up.sh --test``.
+DESK = os.environ.get("FRONTDESK_TEST_DESK", "http://127.0.0.1:8018")
 
 
 def _desk_is_up() -> bool:
@@ -23,7 +24,7 @@ def _desk_is_up() -> bool:
 
 def pytest_collection_modifyitems(config, items):
     if not _desk_is_up():
-        skip = pytest.mark.skip(reason=f"no desk at {DESK}; start one with desk/up.sh")
+        skip = pytest.mark.skip(reason=f"no desk at {DESK}; start one with desk/up.sh --test")
         for item in items:
             item.add_marker(skip)
 
@@ -66,16 +67,16 @@ async def until(condition, *desks, timeout: float = 15.0):
 @pytest.fixture
 async def people(tmp_path):
     """Join identities for one test: ``await people("will", kind="person")``, ``await people("wren")``.
-    Agents answer to the first person joined."""
-    suffix = uuid.uuid4().hex[:8]
+    Agents answer to the first person joined. Each test has its own namespace, so its identities
+    keep their plain names and never appear in the main register."""
+    namespace = f"test-{uuid.uuid4().hex[:8]}"
     desks: list[Desk] = []
     state = {"person": None}
 
     async def join(name: str, *, kind: str = "agent", can_start: bool = True) -> Desk:
         if kind == "agent" and state["person"] is None:
             await join("keeper", kind="person")
-        full = f"{name}-{suffix}"
-        desk = await Desk.join(DESK, full, tmp_path / full, kind=kind,
+        desk = await Desk.join(DESK, name, tmp_path / name, kind=kind, namespace=namespace,
                                answerable=state["person"] if kind == "agent" else None)
         desk.host = RecordingHost(can_start)
         if kind == "person" and state["person"] is None:
@@ -84,6 +85,7 @@ async def people(tmp_path):
         return desk
 
     join.state_dir = lambda desk: desk.state_dir  # type: ignore[attr-defined]
+    join.namespace = namespace  # type: ignore[attr-defined]
     yield join
     for desk in desks:
         await desk.close()

@@ -660,6 +660,7 @@ class Desk(Requests):
             else:
                 await self._start_fresh(row["event_id"], arrival)
         await self._expire_requests()
+        await self._resend_outcomes()
 
     async def _recover(self) -> None:
         """After a restart: finish what was in flight without doing anything twice, and wake the

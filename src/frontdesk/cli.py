@@ -96,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     join = sub.add_parser("join", help="list a new identity")
     join.add_argument("name")
     join.add_argument("--person", action="store_true", help="a person, not an agent")
-    join.add_argument("--answerable", help="the listed person answerable for this agent")
+    join.add_argument("--answerable", help="a listed person answerable for this agent, invited to watch its lines (optional)")
     join.add_argument("--desk", default=os.environ.get("FRONTDESK_DESK", DEFAULT_DESK))
     join.add_argument("--namespace", default=os.environ.get("FRONTDESK_NAMESPACE", ""),
                       help="list it in a separate register (tests, trials), never the main one")

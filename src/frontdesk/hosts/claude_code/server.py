@@ -65,7 +65,7 @@ def build(desk: Optional[Desk], home: Path, catalog: tools.Catalog) -> Server:
     async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         if desk is None:
             result = {"error": f"no identity has joined the desk from {home}. Run: frontdesk join <name> "
-                               "--answerable <person>"}
+                               "[--answerable <person>]"}
         else:
             result = await tools.call(desk, sessions.current(home), name, arguments, catalog)
         return [types.TextContent(type="text", text=json.dumps(result, default=str))]

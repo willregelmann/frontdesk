@@ -104,7 +104,8 @@ class Desk(Requests):
     @classmethod
     async def join(cls, homeserver: str, name: str, state_dir: Path | str, *, kind: str = "agent",
                    answerable: Optional[str] = None, seat: str = "main", namespace: str = "") -> "Desk":
-        """List a new identity. An agent names the listed person answerable for it. ``namespace``
+        """List a new identity. An agent may name a listed person answerable for it, who is then invited
+        to watch its lines; without one, nobody else is invited. ``namespace``
         keeps it out of the main register (tests, trials): it is listed, found and reached only by
         others in the same namespace, and fixed for the life of the identity."""
         state_dir = Path(state_dir)
@@ -114,8 +115,6 @@ class Desk(Requests):
             raise DeskError(f"{state_dir} already holds an identity")
         if kind not in ("agent", "person"):
             raise DeskError("kind is 'agent' or 'person'")
-        if kind == "agent" and not answerable:
-            raise DeskError("an agent names the listed person answerable for it")
         matrix = Matrix(homeserver)
         password = secrets.token_urlsafe(32)
         try:

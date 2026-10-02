@@ -174,6 +174,13 @@ class Ledger:
     def inbox_row(self, event_id: str) -> Optional[sqlite3.Row]:
         return self._one("SELECT * FROM inbox WHERE event_id=?", event_id)
 
+    def outcome_for(self, request_event_id: str) -> Optional[dict]:
+        """The outcome that came back for the request this identity sent as ``request_event_id``. Only
+        the line's peer gets into the inbox (routing drops anyone else), so it is the receiver's."""
+        row = self._one("SELECT arrival FROM inbox WHERE json_extract(arrival, '$.kind')='outcome' "
+                        "AND json_extract(arrival, '$.answers')=? ORDER BY seq LIMIT 1", request_event_id)
+        return json.loads(row["arrival"]) if row else None
+
     def inbox_by_msg(self, ref_or_id: str) -> Optional[sqlite3.Row]:
         return self._one("SELECT * FROM inbox WHERE event_id=? OR json_extract(arrival, '$.id')=?",
                          ref_or_id, ref_or_id)

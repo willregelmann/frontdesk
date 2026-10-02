@@ -424,6 +424,14 @@ class Desk(Requests):
                 if any(d["delay_id"] == row["delay_id"] for d in await self.matrix.delayed()):
                     return Trace(id=msg_id, state=wire.HELD, held_until=row["held_until"])
                 return Trace(id=msg_id, state=wire.ACCEPTED, held_until=row["held_until"])
+            # A request ends in its outcome, never in being taken in by a conversation: once the
+            # receiver's outcome is here, that is what became of it.
+            if row["kind"] == wire.REQUEST:
+                outcome = self.ledger.outcome_for(row["event_id"])
+                if outcome is not None:
+                    result = (outcome.get("outcome") or {}).get("result") or wire.ACCEPTED
+                    return Trace(id=msg_id, state=result, reason=(outcome.get("outcome") or {}).get("detail"),
+                                 at=outcome.get("sent_at"))
             # Only the receiver says what became of it: the sender and anyone watching the line can
             # write a status event too, and theirs is not the receiver taking it in.
             statuses = [s for s in await self.matrix.references(row["room_id"], row["event_id"], wire.EV_STATUS)

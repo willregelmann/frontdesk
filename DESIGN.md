@@ -20,8 +20,8 @@ respectively, where the map needs a log with a place per reader).
 | A line | A private room between two conversations. Messages to a channel travel down a line; the first message to someone's default channel opens a new one. |
 | Message | An ordinary `m.room.message` with an `io.frontdesk` block: id, kind, `to`, `from`, `arrive` (wake or wait), `answers`, `expires`, `due`, `seen`. A message a person types has no block and means: from them, waking, to whatever this line reaches. |
 | Held until a time | A delayed event (MSC4140). Taking it back cancels it. |
-| What became of it | `io.frontdesk.status` events referencing the message (arrived, taken_in, refused, expired), written by the receiver's host. For a person, their client's read receipt is "taken in". |
-| Offer, request, outcome | Listed in the identity's entry; a request and its outcome are messages of kind `request` and `outcome`. |
+| What became of it | `io.frontdesk.status` events referencing the message (arrived, taken_in, refused, expired), written by the receiver's host. For a person, their client's read receipt is "taken in". A request is never taken in by a conversation: once its outcome is back, the trace is that outcome (`done`, `refused`, `failed`, `expired`). |
+| Offer, request, outcome | Listed in the identity's entry; a request and its outcome are messages of kind `request` and `outcome`. An offer that needs nobody's agreement runs inside the desk's own loop, not through the host's turn, so a host being busy never holds it back. |
 | Agreement by another identity | A message to that identity in a line of its own. A person answers yes or no in their chat client. |
 | Watching | The person answerable for an agent is invited to every line that agent is on. What they say there is addressed to nobody and wakes nobody. |
 | Is someone there | Matrix presence, which follows whether a host is attending. Anything else is reported as not known. |

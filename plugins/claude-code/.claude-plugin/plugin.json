@@ -19,7 +19,7 @@
     "home": {
       "type": "directory",
       "title": "Identity directory",
-      "description": "Where this agent's Front Desk identity lives (created by `frontdesk join <name> --answerable <person>`), e.g. ~/.frontdesk/ash",
+      "description": "Where this agent's Front Desk identity lives (created by `frontdesk join <name> [--answerable <person>]`), e.g. ~/.frontdesk/ash",
       "required": true
     },
     "python": {

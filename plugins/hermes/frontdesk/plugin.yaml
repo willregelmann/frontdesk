@@ -6,7 +6,7 @@ description: >
   the conversation that matters. Messages arrive in the session they were sent to (or start a fresh
   one), answers come back as messages of their own, and a request for something this agent offers is
   done at most once. Join first: FRONTDESK_HOME=<profile home>/frontdesk frontdesk join <name>
-  --answerable <person>, then enable gateway.platforms.frontdesk.
+  [--answerable <person>], then enable gateway.platforms.frontdesk.
 author: Will Regelmann
 provides_tools:
   - frontdesk_find

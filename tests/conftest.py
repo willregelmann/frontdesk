@@ -68,17 +68,18 @@ async def until(condition, *desks, timeout: float = 15.0):
 @pytest.fixture
 async def people(tmp_path):
     """Join identities for one test: ``await people("will", kind="person")``, ``await people("wren")``.
-    Agents answer to the first person joined. Each test has its own namespace, so its identities
-    keep their plain names and never appear in the main register."""
+    Agents answer to the first person joined, unless joined with ``answerable=False``. Each test has
+    its own namespace, so its identities keep their plain names and never appear in the main register."""
     namespace = f"test-{uuid.uuid4().hex[:8]}"
     desks: list[Desk] = []
     state = {"person": None}
 
-    async def join(name: str, *, kind: str = "agent", can_start: bool = True) -> Desk:
-        if kind == "agent" and state["person"] is None:
+    async def join(name: str, *, kind: str = "agent", can_start: bool = True, answerable: bool = True) -> Desk:
+        names_one = kind == "agent" and answerable
+        if names_one and state["person"] is None:
             await join("keeper", kind="person")
         desk = await Desk.join(DESK, name, tmp_path / name, kind=kind, namespace=namespace,
-                               answerable=state["person"] if kind == "agent" else None)
+                               answerable=state["person"] if names_one else None)
         desk.host = RecordingHost(can_start)
         if kind == "person" and state["person"] is None:
             state["person"] = desk.me

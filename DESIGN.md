@@ -23,7 +23,7 @@ respectively, where the map needs a log with a place per reader).
 | What became of it | `io.frontdesk.status` events referencing the message (arrived, taken_in, refused, expired), written by the receiver's host. For a person, their client's read receipt is "taken in". |
 | Offer, request, outcome | Listed in the identity's entry; a request and its outcome are messages of kind `request` and `outcome`. |
 | Agreement by another identity | A message to that identity in a line of its own. A person answers yes or no in their chat client. |
-| Watching | The person answerable for an agent is invited to every line that agent is on. What they say there is addressed to nobody and wakes nobody. |
+| Watching | An agent may name a listed person answerable for it. That person is invited to every line the agent is on; what they say there is addressed to nobody and wakes nobody. An agent that names nobody has no watcher, and its lines hold only the two parties. |
 | Is someone there | Matrix presence, which follows whether a host is attending. Anything else is reported as not known. |
 
 `desk/frontdesk.yaml` turns on open registration, turns off federation, removes rate limits

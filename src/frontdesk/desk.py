@@ -525,12 +525,21 @@ class Desk(Requests):
                     pass  # already there
         if sender != line["peer"]:
             return  # someone watching the line spoke; it is not addressed to anyone
+        if not line["agreement_for"] and self._for_another_seat(block, line):
+            return  # that seat takes it; claiming it here, even briefly, can hide it from that seat
         if line["agreement_for"]:
             await self._agreement_answer(line, event, block)
             return
         if not self.ledger.claim(event_id, seq, room_id, self.seat):
             return
         await self._route(room_id, line, event, block)
+
+    def _for_another_seat(self, block: dict, line: Any) -> bool:
+        """The message is for a live channel that another seat of this identity holds. That seat
+        must claim it: a claim here that is then released can land while the owner is looking,
+        and the owner, finding it claimed, moves past it for good."""
+        channel = self.ledger.channel(str(block.get("to") or line["my_channel"] or ""))
+        return channel is not None and not channel["ended"] and channel["seat"] != self.seat
 
     async def _route(self, room_id: str, line: Any, event: dict, block: dict) -> None:
         event_id = event["event_id"]

@@ -1,6 +1,6 @@
 # Person
 
-A human [identity](../primitives/IDENTITY.md). A person reaches the desk through an ordinary chat client they already use, where each [channel](../primitives/CHANNEL.md) appears as a conversation.
+A human [identity](../primitives/IDENTITY.md). A person reaches the desk through an ordinary chat client they already use, by way of a [connector](CONNECTORS.md) for that chat service, where each [channel](../primitives/CHANNEL.md) appears as a conversation.
 
 ## What a person sees
 

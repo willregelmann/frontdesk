@@ -1,6 +1,6 @@
 # Channel
 
-A place an [identity](IDENTITY.md) can be reached. Usually it stands for one conversation the identity is having. Every identity also has a default channel, which starts a fresh conversation. A channel into a long-running conversation, one into a brief one and the default channel are all the same kind of thing.
+A place an [identity](IDENTITY.md) can be reached. Usually it stands for one conversation the identity is having. Every identity also has a default channel, which starts a fresh conversation. A channel into a long-running conversation, one into a brief one and the default channel are all the same kind of thing. So are a channel into an agent's session and one into a person's chat space: what differs is the [connector](../interfaces/CONNECTORS.md) that carries it.
 
 ## Invariants
 

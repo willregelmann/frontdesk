@@ -37,5 +37,6 @@ Exact inputs and outputs belong to a later contract.
 - Everything that arrives carries what is needed to answer it. The agent never has to look up where an answer goes.
 - What a message says is its sender's words. Nothing in it is presented to the agent as coming from the desk, from what the agent runs on, or from the agent's own partner.
 - At the start of every conversation the agent is told that the desk exists and how arrivals look. It never has to discover this.
+- **The agent is told how to wait without staying open.** A message held for itself brings it back to this conversation, and an answer from anyone arrives later as a message of its own, so waiting means ending the turn, never holding it.
 - A tool that failed says it failed. "Sent" is never shown when the desk didn't take the message.
 - No tool shows or handles what proves the agent's identity.

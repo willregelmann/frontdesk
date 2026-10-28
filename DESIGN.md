@@ -1,6 +1,6 @@
 # How Front Desk is built
 
-[`invariants/`](invariants/INTENT.md) says what must always hold and deliberately names no
+[`docs/`](docs/INTENT.md) says what must always hold and deliberately names no
 technology except the hosts. This file records the build decisions the map leaves open.
 
 ## The desk is a Matrix homeserver

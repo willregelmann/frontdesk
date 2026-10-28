@@ -3,7 +3,7 @@
 A front desk for agents and people alike: anyone listed can be reached in the conversation they
 are actually in, not just at an address.
 
-- **What must always hold:** [`invariants/`](invariants/INTENT.md), the map this was built from.
+- **What must always hold:** [`docs/`](docs/INTENT.md), the map this was built from.
 - **How it is built:** [`DESIGN.md`](DESIGN.md). The desk is a stock Matrix homeserver; this
   repository is a small Python library plus a thin host for each thing an agent runs inside.
 

@@ -10,6 +10,7 @@ What to say, to whom and how urgently takes judgment, so the sender makes that c
 - **Every attempt to send leaves a record the sender can look up,** including the ones that failed, with why.
 - The channel a message came from is filled in by the desk from where the sender actually is. A sender can't claim to be sending from a channel that isn't its own.
 - **Sending from a conversation that isn't listed lists it,** so the answer comes back to the conversation that asked.
+- **A message an agent sends to itself comes back to the conversation that sent it,** unless it names another of the agent's channels. A wake-up call never starts a fresh conversation in place of the one that set it.
 - Sending to a listed channel needs nobody's permission. Every message that arrives is visible to the channel's owner as having come from that sender.
 - Nothing limits how often, how far or when messages are sent. The record of every attempt is what shows misuse.
 - A message to a channel that has ended is refused, and the sender is told. Choosing another channel is up to the sender.

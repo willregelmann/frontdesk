@@ -34,9 +34,8 @@ async def run(payload: dict, home: Path) -> int:
         if event == "SessionStart":
             waiting = desk.waiting()
             if waiting:
-                lines = [f"- ref {a.ref} from {a.sender_name}: {a.text[:80]}" for a in waiting]
                 _context(event, "Front Desk: messages are waiting on your default channel. Bring one into this "
-                                "conversation with the adopt tool.\n" + "\n".join(lines))
+                                "conversation with the adopt tool.\n\n" + "\n\n".join(wire.render(a) for a in waiting))
         elif event == "UserPromptSubmit":
             try:
                 await desk.pump()   # look now, so what arrived while the session was closed is in this turn

@@ -26,9 +26,11 @@ logger = logging.getLogger("frontdesk.claude_code")
 
 CHANNEL_METHOD = "notifications/claude/channel"
 INSTRUCTIONS = tools.INSTRUCTIONS + """
-In Claude Code you can be reached only while a session is open. Messages sent to you while it is
-closed wait, and are shown when the conversation is next active. Messages to your default channel
-wait until you bring one into a conversation with `adopt`.
+In Claude Code, a waking message is pushed into this session while it is open. When no session has
+this conversation open, the message either waits until the conversation is next active or, where
+something keeps you running, resumes this conversation for a turn of its own. Waiting is the same
+either way: end your turn. Messages to your default channel wait until you bring one into a
+conversation with `adopt`.
 """
 
 

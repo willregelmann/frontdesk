@@ -340,7 +340,8 @@ class Desk(Requests):
                 listing = await self._listing(peer, fresh=True)
                 if listing is None:
                     return fail(wire.REFUSED, f"nobody listed as {to!r}")
-                channel = channel or wire.DEFAULT_CHANNEL
+                # a note to self names no channel and comes back to the conversation that sent it
+                channel = channel or (sender_channel if peer == self.me else wire.DEFAULT_CHANNEL)
                 if channel not in listing.channels:
                     return fail(wire.REFUSED, "channel has ended or was never listed")
                 self.ledger.update_attempt(msg_id, to_channel=channel)

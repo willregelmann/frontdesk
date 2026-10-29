@@ -93,6 +93,22 @@ async def test_session_gets_the_same_tools_and_is_told_about_the_desk(people):
         await session.close()
 
 
+async def test_the_agent_is_told_how_to_wait_without_staying_open(people):
+    """docs/interfaces/AGENT.md. What the session is told, word for word, so this checks the telling,
+    not whether a model follows it."""
+    ash = await people("ash")
+    await hook(ash.state_dir, "SessionStart")
+    session = await Session.open(ash.state_dir)
+    try:
+        told = " ".join(session.hello["instructions"].split())
+        assert "To wait, for an answer, for someone else or for a time, end your turn." in told
+        assert "Never sleep, poll or keep the turn open" in told
+        assert "comes back to this conversation" in told
+        assert "closed wait" not in told   # not true where something resumes a closed conversation
+    finally:
+        await session.close()
+
+
 async def test_waking_message_is_pushed_into_the_open_session_and_taken_in_when_the_turn_ends(people, tmp_path):
     wren, ash = await people("wren"), await people("ash")
     await hook(ash.state_dir, "SessionStart")

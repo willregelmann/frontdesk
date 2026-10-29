@@ -117,8 +117,6 @@ async def _call(desk: Desk, conversation: Optional[str], name: str, args: dict, 
         hold = args.get("hold_for_seconds")
         expires = args.get("expires_in_seconds")
         channel = args.get("channel")
-        if desk._resolve(to) == desk.me and not channel and not args.get("answers") and conversation:
-            channel = await desk.list_channel(conversation)   # a note to self comes back to this conversation
         receipt = await desk.send(
             to, args["text"], conversation=conversation, channel=channel,
             arrive=args.get("arrive") or wire.WAKE, answers=args.get("answers"),

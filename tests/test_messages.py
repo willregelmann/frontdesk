@@ -1,10 +1,13 @@
 """Messages: who they are from, where answers go, how they arrive and what became of them."""
 
 import asyncio
+import os
+import subprocess
+import sys
 
 import pytest
 
-from frontdesk import wire
+from frontdesk import tools, wire
 from frontdesk.desk import listed_name
 from frontdesk.matrix import MatrixError
 from frontdesk.wire import now_ms
@@ -117,6 +120,30 @@ async def test_a_wake_up_call_is_a_held_message_to_your_own_conversation(people)
     assert wren.host.woken == ["wren-with-will"]
     [note] = await wren.take("wren-with-will")
     assert note.sender == wren.me and note.text == "check whether the deploy finished"
+
+
+async def test_a_note_to_self_comes_back_to_the_conversation_that_sent_it_through_the_tools(people):
+    """docs/capabilities/SEND.md: a message an agent sends to itself comes back to the conversation
+    that sent it."""
+    wren = await people("wren")
+    out = await tools.call(wren, "wren-with-will", "send", {"text": "check back", "hold_for_seconds": 1})
+    assert out["state"] == wire.HELD, out
+    await until(lambda: wren.host.woken or wren.host.started, wren)
+    assert wren.host.started == [] and wren.host.woken == ["wren-with-will"]
+
+
+async def test_a_note_to_self_comes_back_to_the_conversation_that_sent_it_through_the_cli(people):
+    """docs/capabilities/SEND.md, the same promise from the command line, sent from a conversation
+    this desk already holds."""
+    wren = await people("wren")
+    await wren.list_channel("wren-with-will")
+    ran = await asyncio.to_thread(
+        subprocess.run, [sys.executable, "-m", "frontdesk.cli", "send", wren.me, "check back",
+                         "--conversation", "wren-with-will", "--hold", "1"],
+        env={**os.environ, "FRONTDESK_HOME": str(wren.state_dir)}, capture_output=True, text=True, timeout=60)
+    assert ran.returncode == 0, ran.stdout + ran.stderr
+    await until(lambda: wren.host.woken or wren.host.started, wren)
+    assert wren.host.started == [] and wren.host.woken == ["wren-with-will"]
 
 
 async def test_message_to_an_ended_channel_is_refused_and_not_sent_on(people):

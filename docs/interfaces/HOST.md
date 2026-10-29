@@ -22,7 +22,7 @@ What an [agent](AGENT.md) runs inside. In Hermes something is always running, an
 | Starts a turn for a waking message | Yes | While a session is open | Yes: in the open session, or by resuming the closed one |
 | Shows waiting messages when a conversation is next active | Yes | Yes | Yes |
 | Starts a fresh conversation for the default channel | Yes | No: the message waits | No: the message waits |
-| Carries out what an [offer](../primitives/OFFER.md) does | Yes | While a session is open | While a session is open |
+| Carries out what an [offer](../primitives/OFFER.md) does | Yes | While a session is open | Yes |
 
 ## Invariants
 

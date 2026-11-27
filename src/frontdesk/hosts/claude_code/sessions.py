@@ -64,3 +64,28 @@ def current(home: Path) -> Optional[str]:
         if entry.get("started") == _started(pid):
             return entry.get("session")
     return None
+
+
+def live(home: Path) -> set[str]:
+    """The sessions whose Claude Code process is still running, as their hooks recorded them. Where a
+    process's start can't be read, a recorded process that exists counts as running."""
+    found: set[str] = set()
+    try:
+        entries = list(_dir(home).iterdir())
+    except OSError:
+        return found
+    for path in entries:
+        if not path.name.isdigit():
+            continue
+        try:
+            entry = json.loads(path.read_text())
+            os.kill(int(path.name), 0)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            pass
+        except (OSError, ValueError):
+            continue
+        if entry.get("session") and entry.get("started", "") == _started(int(path.name)):
+            found.add(entry["session"])
+    return found

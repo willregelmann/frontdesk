@@ -148,10 +148,16 @@ class Requests:
             needs = f" with {json.dumps(request['args'])}" if request.get("args") else ""
             text = (f"{arrival.sender_name} asks {self.profile.get('name')} to do "  # type: ignore[attr-defined]
                     f"\"{request.get('offer')}\"{needs}. Answer yes or no.")
-            await self.matrix.send(room, "m.room.message", f"agr-{ref}", wire.message_content(
-                text, kind=wire.AGREEMENT, to=None, sender_channel=None, arrive=wire.WAKE,
-                expires=self.ledger.request(ref)["expires"], offer=request.get("offer"),
-                args=request.get("args") or {}, asker=arrival.sender, request=ref))
+            expires = self.ledger.request(ref)["expires"]
+            asked = await self._post(  # type: ignore[attr-defined]
+                room, f"agr-{ref}", wire.message_content(
+                    text, kind=wire.AGREEMENT, to=None, sender_channel=None, arrive=wire.WAKE, expires=expires,
+                    offer=request.get("offer"), args=request.get("args") or {}, asker=arrival.sender, request=ref),
+                kind=wire.AGREEMENT, to_identity=approver, to_channel=None, from_channel=None, expires=expires)
+            if asked.state == wire.FAILED:
+                await self._outcome(ref, wire.FAILED, f"could not ask for agreement: {asked.reason}", _OPEN,
+                                    arrival=arrival)
+                return
             self.ledger._run("UPDATE requests SET agreement_room=? WHERE ref=?", room, ref)
         except (MatrixError, httpx.HTTPError) as exc:
             await self._outcome(ref, wire.FAILED, f"could not ask for agreement: {exc}", _OPEN, arrival=arrival)
@@ -166,9 +172,11 @@ class Requests:
         body = str(event["content"].get("body") or "")
         verdict = block["agree"] if isinstance(block.get("agree"), bool) else _verdict(body)
         if verdict is None:
-            await self.matrix.send(line["room_id"], "m.room.message", f"hint-{event['event_id']}", wire.message_content(
-                "That wasn't a yes or a no, so nothing was decided. Answer yes or no.",
-                to=None, sender_channel=None, arrive=wire.WAIT))
+            await self._post(  # type: ignore[attr-defined]
+                line["room_id"], f"hint-{event['event_id']}", wire.message_content(
+                    "That wasn't a yes or a no, so nothing was decided. Answer yes or no.",
+                    to=None, sender_channel=None, arrive=wire.WAIT),
+                kind=wire.MESSAGE, to_identity=line["peer"], to_channel=None, from_channel=None)
             return
         await self._status(line["room_id"], event["event_id"], wire.TAKEN_IN)  # type: ignore[attr-defined]
         if not verdict:
@@ -216,23 +224,19 @@ class Requests:
         attempt = self.ledger.attempt(msg_id)
         if attempt is not None:
             asker_channel = attempt["to_channel"]
-        else:
-            if asker_channel is None:
-                row = self.ledger.inbox_row(ref)
-                asker_channel = (json.loads(row["arrival"]) if row else {}).get("from_channel")
-            self.ledger.log_attempt(msg_id, wire.OUTCOME, request["asker"], asker_channel, None, None)
+        elif asker_channel is None:
+            row = self.ledger.inbox_row(ref)
+            asker_channel = (json.loads(row["arrival"]) if row else {}).get("from_channel")
         result, detail = request["state"], request["detail"]
         text = f"{request['offer']}: {result.replace('_', ' ')}" + (f". {detail}" if detail else "")
-        try:
-            sent = await self.matrix.send(request["room_id"], "m.room.message", msg_id, wire.message_content(
+        sent = await self._post(  # type: ignore[attr-defined]
+            request["room_id"], msg_id, wire.message_content(
                 text, kind=wire.OUTCOME, to=asker_channel, sender_channel=None, arrive=wire.WAKE, msg_id=msg_id,
                 answers=ref, result=result, detail=detail, asked=request["asker"], agreed=request["agreed_by"],
-                offer=request["offer"]))
-            self.ledger.update_attempt(msg_id, state=wire.ACCEPTED, reason=None, room_id=request["room_id"],
-                                       event_id=sent["event_id"])
-        except (MatrixError, httpx.HTTPError) as exc:
-            self.ledger.update_attempt(msg_id, reason=f"the desk did not take it: {exc}")
-            logger.warning("outcome of %s could not be sent; it is sent again later: %s", ref, exc)
+                offer=request["offer"]),
+            kind=wire.OUTCOME, to_identity=request["asker"], to_channel=asker_channel, from_channel=None)
+        if sent.state == wire.FAILED:
+            logger.warning("outcome of %s could not be sent; it is sent again later: %s", ref, sent.reason)
 
     async def _resend_outcomes(self) -> None:
         """Every closed request whose outcome the desk does not have yet: never silence."""

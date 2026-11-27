@@ -357,17 +357,34 @@ class Desk(Requests):
                 text, kind=kind, to=None if answers and not channel else channel, sender_channel=sender_channel,
                 arrive=arrive, msg_id=msg_id, answers=answers, expires=expires,
                 due=hold_until if delay else None, seen=self.ledger.last_taken_in(room) or "", **more)
-            sent = await self.matrix.send(room, "m.room.message", msg_id, content, delay_ms=delay)
         except DeskError as exc:
             return fail(wire.FAILED, str(exc))
         except (MatrixError, httpx.HTTPError) as exc:
             return fail(wire.FAILED, f"the desk did not take it: {exc}")
+        return await self._post(room, msg_id, content, kind=kind, to_identity=peer, to_channel=channel,
+                                from_channel=sender_channel, expires=expires, delay_ms=delay, held_until=hold_until)
+
+    async def _post(self, room: str, msg_id: str, content: dict, *, kind: str, to_identity: str,
+                    to_channel: Optional[str], from_channel: Optional[str], expires: Optional[int] = None,
+                    delay_ms: Optional[int] = None, held_until: Optional[int] = None) -> Receipt:
+        """Put a message on the desk. Every message this identity sends goes through here, so each
+        attempt leaves a record (docs/capabilities/SEND.md). ``msg_id`` is the transaction id: sending
+        again with the same one never puts a second message in the line (docs/primitives/MESSAGE.md)."""
+        if self.ledger.attempt(msg_id) is None:
+            self.ledger.log_attempt(msg_id, kind, to_identity, to_channel, from_channel, expires)
+        try:
+            sent = await self.matrix.send(room, "m.room.message", msg_id, content, delay_ms=delay_ms)
+        except (MatrixError, httpx.HTTPError) as exc:
+            reason = f"the desk did not take it: {exc}"
+            self.ledger.update_attempt(msg_id, state=wire.FAILED, reason=reason)
+            return Receipt(id=msg_id, state=wire.FAILED, reason=reason)
         if "event_id" in sent:
             self.ledger.note_event(room, sent["event_id"], True, now_ms())
+        state = wire.HELD if delay_ms else wire.ACCEPTED
+        held_until = held_until if delay_ms else None
         self.ledger.update_attempt(msg_id, room_id=room, event_id=sent.get("event_id"), delay_id=sent.get("delay_id"),
-                                   state=wire.HELD if delay else wire.ACCEPTED, reason=None,
-                                   held_until=hold_until if delay else None)
-        return Receipt(id=msg_id, state=wire.HELD if delay else wire.ACCEPTED, held_until=hold_until if delay else None)
+                                   state=state, reason=None, held_until=held_until)
+        return Receipt(id=msg_id, state=state, held_until=held_until)
 
     async def say(self, line: str, text: str, *, arrive: str = wire.WAKE) -> Receipt:
         """Speak down a line this identity is already on: how a conversation that a message
@@ -378,18 +395,10 @@ class Desk(Requests):
             self.ledger.log_attempt(msg_id, wire.MESSAGE, "", None, None, None)
             self.ledger.update_attempt(msg_id, reason="no such line")
             return Receipt(id=msg_id, state=wire.FAILED, reason="no such line")
-        self.ledger.log_attempt(msg_id, wire.MESSAGE, row["peer"], row["peer_channel"], row["my_channel"], None)
-        try:
-            sent = await self.matrix.send(line, "m.room.message", msg_id, wire.message_content(
-                text, to=row["peer_channel"], sender_channel=row["my_channel"], arrive=arrive, msg_id=msg_id,
-                seen=self.ledger.last_taken_in(line) or ""))
-        except (MatrixError, httpx.HTTPError) as exc:
-            reason = f"the desk did not take it: {exc}"
-            self.ledger.update_attempt(msg_id, reason=reason)
-            return Receipt(id=msg_id, state=wire.FAILED, reason=reason)
-        self.ledger.note_event(line, sent["event_id"], True, now_ms())
-        self.ledger.update_attempt(msg_id, room_id=line, event_id=sent["event_id"], state=wire.ACCEPTED, reason=None)
-        return Receipt(id=msg_id, state=wire.ACCEPTED)
+        content = wire.message_content(text, to=row["peer_channel"], sender_channel=row["my_channel"], arrive=arrive,
+                                       msg_id=msg_id, seen=self.ledger.last_taken_in(line) or "")
+        return await self._post(line, msg_id, content, kind=wire.MESSAGE, to_identity=row["peer"],
+                                to_channel=row["peer_channel"], from_channel=row["my_channel"])
 
     def rename_conversation(self, old: str, new: str) -> bool:
         """The host now knows the conversation by another id (it was started before it had one)."""
@@ -454,9 +463,13 @@ class Desk(Requests):
             self.ledger.update_attempt(msg_id, state=wire.WITHDRAWN, reason="taken back by its sender")
             return await self.trace(msg_id)
         if row["kind"] == wire.REQUEST and row["event_id"]:
-            await self.matrix.send(row["room_id"], "m.room.message", f"wd-{msg_id}", wire.message_content(
-                "Withdrawn.", kind=wire.WITHDRAW, to=row["to_channel"], sender_channel=row["from_channel"],
-                arrive=wire.WAIT, answers=row["event_id"]))
+            content = wire.message_content("Withdrawn.", kind=wire.WITHDRAW, to=row["to_channel"],
+                                           sender_channel=row["from_channel"], arrive=wire.WAIT, answers=row["event_id"])
+            withdrawal = await self._post(row["room_id"], f"wd-{msg_id}", content, kind=wire.WITHDRAW,
+                                          to_identity=row["to_identity"], to_channel=row["to_channel"],
+                                          from_channel=row["from_channel"])
+            if withdrawal.state == wire.FAILED:
+                raise DeskError(f"it could not be taken back: {withdrawal.reason}")
             return await self.trace(msg_id)
         raise DeskError("it has already arrived, so it can't be taken back")
 

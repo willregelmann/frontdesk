@@ -1,6 +1,6 @@
 # Host
 
-What an [agent](AGENT.md) runs inside. In Hermes something is always running, and it can start a conversation by itself. In Claude Code on its own, an agent exists only while someone has a session open. Under Hearth, something is always running for the agent, and it resumes a closed Claude Code conversation when a waking message comes for it.
+What an [agent](AGENT.md) runs inside. In Hermes something is always running, and it can start a conversation by itself. In Claude Code on its own, an agent exists only while someone has a session open. Under Hearth, something is always running for the agent: it polls the desk for what is waiting, and resumes a closed Claude Code conversation when a waking message comes for it.
 
 ## Moments the host provides
 
@@ -21,7 +21,7 @@ What an [agent](AGENT.md) runs inside. In Hermes something is always running, an
 | Holds what proves the [identity](../primitives/IDENTITY.md) | Yes | Yes | Yes |
 | Starts a turn for a waking message | Yes | While a session is open | Yes: in the open session, or by resuming the closed one |
 | Shows waiting messages when a conversation is next active | Yes | Yes | Yes |
-| Starts a fresh conversation for the default channel | Yes | No: the message waits | No: the message waits |
+| Starts a fresh conversation for the default channel | Yes | No: the message waits | Yes: one named for the sender, whose session adopts the message |
 | Carries out what an [offer](../primitives/OFFER.md) does | Yes | While a session is open | Yes |
 
 ## Invariants
@@ -32,4 +32,5 @@ What an [agent](AGENT.md) runs inside. In Hermes something is always running, an
 - Arriving messages are added at the end of a conversation, at a point where a new turn could begin, and nowhere else.
 - A message for one conversation is never shown in another conversation of the same identity.
 - **A conversation is never run in two places at once.** A waking message for a conversation someone has open is taken up there. Only a closed one is resumed, and only by one host.
+- A host that is polled reports each waking message no turn has taken in, for the conversation it is for, as who sent it and never what it says. It leaves a conversation whose session is running to that session, and a desk it can't reach is a failure, never "nothing waiting".
 - When a host stops without saying so, its conversations become "not known to be there". They are never shown as there.

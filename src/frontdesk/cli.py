@@ -82,6 +82,22 @@ async def _listen(desk: Desk, args) -> None:
     await desk.run(Printer(), poll_ms=5000)
 
 
+async def _pending(args) -> int:
+    """Print one JSON line per waking message no turn has taken in yet, for a host that polls."""
+    import httpx
+    from frontdesk.hosts import poll
+    from frontdesk.matrix import MatrixError
+    try:
+        found = await poll.pending(home_for(args.as_name))
+    except (MatrixError, httpx.HTTPError) as exc:
+        print(f"frontdesk pending: the desk can't be reached, so nothing is known about what is waiting: {exc}",
+              file=sys.stderr)
+        return 1
+    for entry in found:
+        print(json.dumps(entry), flush=True)
+    return 0
+
+
 async def _hook(args) -> int:
     from frontdesk.hosts.claude_code import hooks
     return await hooks.run(json.load(sys.stdin), home_for(args.as_name))
@@ -132,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     listen.add_argument("--description", default="A terminal")
 
     sub.add_parser("hook", help="run a Claude Code hook (reads the hook's JSON on stdin)")
+    sub.add_parser("pending", help="print a JSON line per waking message not yet taken in, for a host that polls")
 
     args = parser.parse_args(argv)
     actions = {
@@ -149,6 +166,8 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(_join(args))
         if args.command == "hook":
             return asyncio.run(_hook(args))
+        if args.command == "pending":
+            return asyncio.run(_pending(args))
         return asyncio.run(_with_desk(args, actions[args.command]))
     except DeskError as exc:
         print(f"frontdesk: {exc}", file=sys.stderr)

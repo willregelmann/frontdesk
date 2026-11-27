@@ -66,6 +66,17 @@ withdraws the channel. A built-in `restart-gateway` offer uses the gateway's own
 Hermes keeps plugin tools behind its tool-search bridge, so the model reaches them through
 `tool_call`; the prompt section names them.
 
+**Polled** (`src/frontdesk/hosts/poll.py`, `frontdesk pending`). How Hearth reaches the desk: it runs
+this as a check and turns each line into a wake. Each run looks at the desk once as every seat that holds
+a live channel and has no session running (`claude-sessions/` names those that do), then once as its own
+seat for the default channel. It prints one JSON line per waking message not yet taken in:
+`{"conversation", "key", "note"}`. The conversation is the channel's, which for Claude Code is the session
+id. The key is the event id with that conversation, so a message moved into another conversation counts
+as new. The note names the sender and the kind, never the text. A message to the default channel names
+`desk:<sender>`, a conversation the gateway starts fresh, where the session-start hook shows the message
+and asks for `adopt`. The turn that is opened takes the message in through the plugin's own hooks, as any
+session does.
+
 ## What is verified, and how
 
 - Core invariants: 25 tests against a live desk, mutation-checked (eight deliberate breaks of the

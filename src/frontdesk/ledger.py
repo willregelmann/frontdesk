@@ -206,9 +206,9 @@ class Ledger:
     def log_attempt(self, msg_id: str, kind: str, to_identity: str, to_channel: Optional[str],
                     from_channel: Optional[str], expires: Optional[int]) -> None:
         self._run("INSERT INTO outbox(msg_id, kind, to_identity, to_channel, from_channel, state, expires, created) "
-                  "VALUES(?, ?, ?, ?, ?, 'failed', ?, ?)", msg_id, kind, to_identity, to_channel, from_channel,
+                  "VALUES(?, ?, ?, ?, ?, 'sending', ?, ?)", msg_id, kind, to_identity, to_channel, from_channel,
                   expires, now_ms())
-        self._run("UPDATE outbox SET reason='not sent' WHERE msg_id=?", msg_id)
+        self._run("UPDATE outbox SET reason='the desk has not answered' WHERE msg_id=?", msg_id)
 
     def update_attempt(self, msg_id: str, **fields: Any) -> None:
         sets = ", ".join(f"{name}=?" for name in fields)

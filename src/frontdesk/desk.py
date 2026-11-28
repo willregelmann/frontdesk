@@ -411,10 +411,12 @@ class Desk:
         attempt leaves a record (docs/capabilities/SEND.md). ``msg_id`` is the transaction id: sending
         again with the same one never puts a second message in the line (docs/primitives/MESSAGE.md).
 
-        The record starts as failed, "not sent", and says accepted only once the desk has answered. A
-        host that stops between the two leaves "failed" on a message the desk may have taken. Outcomes
-        close that gap: they are sent again with the same id after a restart, and the desk keeps the
-        first. Nothing re-sends any other kind, so its record can stay wrong."""
+        The record starts as sending and says accepted or failed only once the desk has answered. A
+        host that stops in between leaves sending, which ``trace`` reports as unknown, never failed: the
+        desk may have taken it. Outcomes are sent again with the same id after a restart and the desk
+        keeps the first; nothing re-sends any other kind. Whoever sends again owns the id: a fresh id
+        is a second message.
+        """
         if self.ledger.attempt(msg_id) is None:
             self.ledger.log_attempt(msg_id, kind, to_identity, to_channel, from_channel, expires)
         try:
@@ -438,7 +440,7 @@ class Desk:
         msg_id = wire.new_id()
         if row is None:
             self.ledger.log_attempt(msg_id, wire.MESSAGE, "", None, None, None)
-            self.ledger.update_attempt(msg_id, reason="no such line")
+            self.ledger.update_attempt(msg_id, state=wire.FAILED, reason="no such line")
             return Receipt(id=msg_id, state=wire.FAILED, reason="no such line")
         content = wire.message_content(text, to=row["peer_channel"], sender_channel=row["my_channel"], arrive=arrive,
                                        msg_id=msg_id, seen=self.ledger.last_taken_in(line) or "")
@@ -474,6 +476,8 @@ class Desk:
             raise DeskError(f"no record of a message {msg_id!r}")
         if row["state"] in (wire.FAILED, wire.REFUSED, wire.WITHDRAWN):
             return Trace(id=msg_id, state=row["state"], reason=row["reason"])
+        if row["state"] == wire.SENDING:   # started, and the desk never answered: it may or may not have it
+            return Trace(id=msg_id, state=wire.UNKNOWN, reason=row["reason"])
         try:
             if row["event_id"] is None:
                 if any(d["delay_id"] == row["delay_id"] for d in await self.matrix.delayed()):

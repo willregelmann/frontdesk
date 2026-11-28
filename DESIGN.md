@@ -38,8 +38,10 @@ homeserver accept line invites on the receiver's behalf (sending needs nobody's 
   channel stands for, each conversation's place, the record of every attempt to send, and how far
   each request has got. Every claim is a single conditional statement, so two processes acting as
   one identity never both take a message or do an offer.
-- `desk.py`: `Desk`, one identity's side: join, list, find, send, trace, take back, receive.
-- `requests.py`: offers and requests. A request moves `received → awaiting → agreed → started →
+- `desk.py`: `Desk`, one identity's side: join, list (channels and offers), find, send, trace,
+  take back, receive. Every message it sends goes through `Desk.post`, which records the attempt.
+- `requests.py`: `Requests`, the Request capability, built on a `Desk`'s public side: asking,
+  agreeing and outcomes are each sent as messages. A request moves `received → awaiting → agreed → started →
   done | failed | refused | expired`; `started` is written before the offer runs, so a restart
   can never run it again.
 - `tools.py`: the ten tools an agent gets and what it is told about the desk, identical on every host.

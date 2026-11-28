@@ -208,7 +208,7 @@ async def test_two_takers_of_one_agreed_request_do_it_once(people):
     ref = ash.ledger.requests_in("awaiting")[0]["ref"]
     ash.ledger.move_request(ref, ("awaiting",), "agreed", agreed_by=ash.me)
 
-    await asyncio.gather(ash._perform(ref), ash._perform(ref))   # e.g. a recovering process and a live one
+    await asyncio.gather(ash.requests._perform(ref), ash.requests._perform(ref))   # e.g. a recovering process and a live one
 
     assert len(calls) == 1
 

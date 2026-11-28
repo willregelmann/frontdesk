@@ -23,8 +23,8 @@ import httpx
 from frontdesk import wire
 from frontdesk.ledger import Ledger
 from frontdesk.matrix import Matrix, MatrixError
-from frontdesk.requests import Requests
-from frontdesk.wire import Arrival, Listing, Receipt, Trace, now_ms
+from frontdesk.requests import Handler, Requests
+from frontdesk.wire import Arrival, DeskError, Listing, Receipt, Trace, now_ms
 
 logger = logging.getLogger("frontdesk")
 
@@ -60,10 +60,6 @@ def localpart(name: str, namespace: str = "") -> str:
     return f"{namespace}.{name}" if namespace else name
 
 
-class DeskError(Exception):
-    """The desk could not do what was asked, and says why."""
-
-
 class Host(Protocol):
     async def wake(self, conversation: str) -> None:
         """A waking message is ready for ``conversation``: start a turn when free, then ``take``."""
@@ -81,7 +77,7 @@ class _NoHost:
         return None
 
 
-class Desk(Requests):
+class Desk:
     def __init__(self, state_dir: Path | str, *, seat: str = "main"):
         self.state_dir = Path(state_dir)
         creds_path = self.state_dir / "credentials.json"
@@ -98,6 +94,7 @@ class Desk(Requests):
         self._handlers: dict[str, Any] = {}
         self._listings: dict[str, tuple[float, Optional[Listing]]] = {}
         self._stop = asyncio.Event()
+        self.requests = Requests(self)
 
     # ── joining ──────────────────────────────────────────────────────────────────────────────────
 
@@ -233,6 +230,10 @@ class Desk(Requests):
             return None
         return {"online": True, "offline": False}.get(presence)
 
+    async def lookup(self, name: str) -> Optional[Listing]:
+        """What the register says about ``name`` (a name or a full id) right now."""
+        return await self._listing(self._resolve(name), fresh=True)
+
     async def _listing(self, identity: str, *, fresh: bool = False) -> Optional[Listing]:
         loop_time = asyncio.get_running_loop().time()
         cached = self._listings.get(identity)
@@ -299,8 +300,47 @@ class Desk(Requests):
         self.ledger.end_channel(row["handle"])
         for pending in self.ledger.pending(row["handle"]):
             self.ledger.set_state(pending["event_id"], wire.REFUSED)
-            await self._status(pending["room_id"], pending["event_id"], wire.REFUSED, "channel has ended")
+            await self.report_state(pending["room_id"], pending["event_id"], wire.REFUSED, "channel has ended")
         await self._publish()
+
+    # ── listing offers ───────────────────────────────────────────────────────────────────────────
+
+    async def offer(self, name: str, description: str, handler: Optional[Handler] = None, *,
+                    needs: Optional[dict] = None, agree: str = wire.AGREE_NOBODY,
+                    survives_restart: bool = False) -> None:
+        """List something this identity will do when asked. ``handler`` is what it does, fixed
+        here by the host: whoever asks supplies only ``needs``. ``agree`` is who must agree first:
+        "nobody", "self", or the name of another listed identity."""
+        if agree not in (wire.AGREE_NOBODY, wire.AGREE_SELF):
+            approver = await self.lookup(agree)
+            if approver is None:
+                raise DeskError(f"{agree!r} is not listed, so they can't be the one who agrees")
+            agree = approver.identity
+        self.ledger.put_offer(name, description, needs or {}, agree, survives_restart)
+        if handler is not None:
+            self._handlers[name] = handler
+        await self._publish()
+
+    async def withdraw_offer(self, name: str) -> None:
+        self.ledger.drop_offer(name)
+        self._handlers.pop(name, None)
+        await self._publish()
+
+    def handler(self, offer: str) -> Optional[Handler]:
+        """What this host fixed an offer to do, if anything here can do it now."""
+        return self._handlers.get(offer)
+
+    # ── asking for offers (docs/capabilities/REQUEST.md) ──────────────────────────────────────────
+
+    async def ask(self, to: str, offer: str, args: Optional[dict] = None, *, conversation: Optional[str] = None,
+                  channel: Optional[str] = None, expires_in_s: Optional[float] = None) -> Receipt:
+        """Ask for someone's offer. The outcome arrives later as a message of its own."""
+        return await self.requests.ask(to, offer, args, conversation=conversation, channel=channel,
+                                       expires_in_s=expires_in_s)
+
+    async def settle(self, ref: str, agree: bool, reason: str = "") -> None:
+        """Agree to or refuse a request that is waiting on this identity."""
+        await self.requests.settle(ref, agree, reason)
 
     # ── sending ──────────────────────────────────────────────────────────────────────────────────
 
@@ -349,7 +389,7 @@ class Desk(Requests):
                     line = self.ledger.find_line(peer, sender_channel, channel)
                     room = line["room_id"] if line else None
                 if room is None:
-                    room = await self._open_line(peer, listing, sender_channel, channel)
+                    room = await self.open_line(peer, listing, sender_channel, channel)
             delay = hold_until - now_ms() if hold_until else None
             if delay is not None and delay <= 0:
                 delay = None
@@ -361,10 +401,10 @@ class Desk(Requests):
             return fail(wire.FAILED, str(exc))
         except (MatrixError, httpx.HTTPError) as exc:
             return fail(wire.FAILED, f"the desk did not take it: {exc}")
-        return await self._post(room, msg_id, content, kind=kind, to_identity=peer, to_channel=channel,
+        return await self.post(room, msg_id, content, kind=kind, to_identity=peer, to_channel=channel,
                                 from_channel=sender_channel, expires=expires, delay_ms=delay, held_until=hold_until)
 
-    async def _post(self, room: str, msg_id: str, content: dict, *, kind: str, to_identity: str,
+    async def post(self, room: str, msg_id: str, content: dict, *, kind: str, to_identity: str,
                     to_channel: Optional[str], from_channel: Optional[str], expires: Optional[int] = None,
                     delay_ms: Optional[int] = None, held_until: Optional[int] = None) -> Receipt:
         """Put a message on the desk. Every message this identity sends goes through here, so each
@@ -397,7 +437,7 @@ class Desk(Requests):
             return Receipt(id=msg_id, state=wire.FAILED, reason="no such line")
         content = wire.message_content(text, to=row["peer_channel"], sender_channel=row["my_channel"], arrive=arrive,
                                        msg_id=msg_id, seen=self.ledger.last_taken_in(line) or "")
-        return await self._post(line, msg_id, content, kind=wire.MESSAGE, to_identity=row["peer"],
+        return await self.post(line, msg_id, content, kind=wire.MESSAGE, to_identity=row["peer"],
                                 to_channel=row["peer_channel"], from_channel=row["my_channel"])
 
     def rename_conversation(self, old: str, new: str) -> bool:
@@ -408,7 +448,7 @@ class Desk(Requests):
         self.ledger._run("UPDATE channels SET conversation=? WHERE handle=?", new, row["handle"])
         return True
 
-    async def _open_line(self, peer: str, listing: Listing, my_channel: str, peer_channel: str,
+    async def open_line(self, peer: str, listing: Listing, my_channel: str, peer_channel: str,
                          agreement_for: Optional[str] = None) -> str:
         """A line is a room between two conversations. The person answerable for this agent is
         invited so they can watch; the peer's host invites theirs."""
@@ -465,7 +505,7 @@ class Desk(Requests):
         if row["kind"] == wire.REQUEST and row["event_id"]:
             content = wire.message_content("Withdrawn.", kind=wire.WITHDRAW, to=row["to_channel"],
                                            sender_channel=row["from_channel"], arrive=wire.WAIT, answers=row["event_id"])
-            withdrawal = await self._post(row["room_id"], f"wd-{msg_id}", content, kind=wire.WITHDRAW,
+            withdrawal = await self.post(row["room_id"], f"wd-{msg_id}", content, kind=wire.WITHDRAW,
                                           to_identity=row["to_identity"], to_channel=row["to_channel"],
                                           from_channel=row["from_channel"])
             if withdrawal.state == wire.FAILED:
@@ -542,7 +582,7 @@ class Desk(Requests):
         if not line["agreement_for"] and self._for_another_seat(block, line):
             return  # that seat takes it; claiming it here, even briefly, can hide it from that seat
         if line["agreement_for"]:
-            await self._agreement_answer(line, event, block)
+            await self.requests.agreement_answered(line, event, block)
             return
         if not self.ledger.claim(event_id, seq, room_id, self.seat):
             return
@@ -562,13 +602,13 @@ class Desk(Requests):
         arrival = await self._arrival(room_id, event, block, line)
         if arrival.expires and now_ms() > arrival.expires:
             self.ledger.file(event_id, None, wire.EXPIRED, asdict(arrival))
-            await self._status(room_id, event_id, wire.EXPIRED)
+            await self.report_state(room_id, event_id, wire.EXPIRED)
             return
         if arrival.kind == wire.WITHDRAW:
             self.ledger.file(event_id, None, wire.TAKEN_IN, asdict(arrival))
-            await self._withdrawn(arrival)
+            await self.requests.withdrawn(arrival)
             return
-        if arrival.kind == wire.REQUEST and not await self._accept_request(arrival):
+        if arrival.kind == wire.REQUEST and not await self.requests.received(arrival):
             self.ledger.file(event_id, None, wire.TAKEN_IN, asdict(arrival))
             return
         target = arrival.to_channel
@@ -585,7 +625,7 @@ class Desk(Requests):
         channel = self.ledger.channel(target)
         if channel is None or channel["ended"]:
             self.ledger.file(event_id, None, wire.REFUSED, asdict(arrival))
-            await self._status(room_id, event_id, wire.REFUSED, "channel has ended")
+            await self.report_state(room_id, event_id, wire.REFUSED, "channel has ended")
             return
         if channel["seat"] != self.seat:
             self.ledger.release(event_id)   # another seat runs that conversation and will take it
@@ -625,7 +665,7 @@ class Desk(Requests):
 
     async def _deliver(self, event_id: str, arrival: Arrival, channel: Any) -> None:
         self.ledger.file(event_id, channel["handle"], wire.ARRIVED, asdict(arrival))
-        await self._status(arrival.line, event_id, wire.ARRIVED)
+        await self.report_state(arrival.line, event_id, wire.ARRIVED)
         if arrival.arrive == wire.WAKE:
             await self._wake(channel["conversation"])
 
@@ -659,7 +699,7 @@ class Desk(Requests):
             arrival.outcome = {key: block.get(key) for key in ("result", "detail", "asked", "agreed", "offer")}
         return arrival
 
-    async def _status(self, room_id: str, event_id: str, state: str, reason: Optional[str] = None) -> None:
+    async def report_state(self, room_id: str, event_id: str, state: str, reason: Optional[str] = None) -> None:
         content = {"state": state, "m.relates_to": {"rel_type": "m.reference", "event_id": event_id}}
         if reason:
             content["reason"] = reason
@@ -682,7 +722,7 @@ class Desk(Requests):
             arrival = Arrival(**json.loads(row["arrival"]))
             if arrival.expires and now_ms() > arrival.expires:
                 self.ledger.set_state(row["event_id"], wire.EXPIRED)
-                await self._status(row["room_id"], row["event_id"], wire.EXPIRED)
+                await self.report_state(row["room_id"], row["event_id"], wire.EXPIRED)
                 continue
             waited = now_ms() - arrival.sent_at
             if arrival.arrive == wire.WAKE and waited > LATE_MS:
@@ -707,7 +747,7 @@ class Desk(Requests):
         rows = self.ledger.shown(channel["handle"])
         for row in rows:
             self.ledger.set_state(row["event_id"], wire.TAKEN_IN)
-            await self._status(row["room_id"], row["event_id"], wire.TAKEN_IN)
+            await self.report_state(row["room_id"], row["event_id"], wire.TAKEN_IN)
         for room_id, event_id in {row["room_id"]: row["event_id"] for row in rows}.items():
             try:
                 await self.matrix.read_receipt(room_id, event_id)
@@ -720,23 +760,22 @@ class Desk(Requests):
         if channel is None:
             return
         for row in self.ledger.roll_back(channel["handle"], ref):
-            await self._status(row["room_id"], row["event_id"], wire.ARRIVED, "conversation rolled back")
+            await self.report_state(row["room_id"], row["event_id"], wire.ARRIVED, "conversation rolled back")
 
     async def _tick(self) -> None:
         for row in self.ledger._all("SELECT event_id, arrival FROM inbox WHERE state='waiting' ORDER BY seq"):
             arrival = Arrival(**json.loads(row["arrival"]))
             if arrival.expires and now_ms() > arrival.expires:
                 self.ledger.set_state(row["event_id"], wire.EXPIRED)
-                await self._status(arrival.line, row["event_id"], wire.EXPIRED)
+                await self.report_state(arrival.line, row["event_id"], wire.EXPIRED)
             else:
                 await self._start_fresh(row["event_id"], arrival)
-        await self._expire_requests()
-        await self._resend_outcomes()
+        await self.requests.tick()
 
     async def _recover(self) -> None:
         """After a restart: finish what was in flight without doing anything twice, and wake the
         conversations that still have waking messages they have not seen."""
-        await self._recover_requests()
+        await self.requests.recover()
         for row in self.ledger.claimed(self.seat):
             if self.ledger.request(row["event_id"]) is not None:
                 self.ledger.set_state(row["event_id"], wire.TAKEN_IN)   # a request: its own record carries it on

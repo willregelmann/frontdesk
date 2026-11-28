@@ -40,6 +40,10 @@ def new_id() -> str:
     return uuid.uuid4().hex
 
 
+class DeskError(Exception):
+    """The desk could not do what was asked, and says why."""
+
+
 @dataclass(frozen=True)
 class Listing:
     """What the register says about one identity."""

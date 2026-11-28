@@ -240,6 +240,9 @@ class Ledger:
     def request_by_agreement_room(self, room_id: str) -> Optional[sqlite3.Row]:
         return self._one("SELECT * FROM requests WHERE agreement_room=? AND state='awaiting'", room_id)
 
+    def note_agreement_room(self, ref: str, room_id: str) -> None:
+        self._run("UPDATE requests SET agreement_room=? WHERE ref=?", room_id, ref)
+
     def move_request(self, ref: str, from_states: tuple[str, ...], to_state: str, **fields: Any) -> bool:
         """Advance a request only if it is still in one of ``from_states``. True for exactly one caller."""
         sets = ", ".join(["state=?", *(f"{name}=?" for name in fields)])

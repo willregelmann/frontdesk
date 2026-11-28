@@ -324,3 +324,42 @@ async def test_the_kind_shown_is_what_the_sender_says_it_is(people):
     heads = {a.text: wire.render(a) for ch in list(ash.host.woken) for a in await ash.take(ch)}
     assert 'from_says_it_is="person"' in heads["from a person"]
     assert 'from_says_it_is="agent"' in heads["from an agent"]
+
+
+class _HostDied(BaseException):
+    """The host process dying."""
+
+
+async def test_a_host_that_dies_after_the_desk_took_a_message_does_not_report_it_failed(people):
+    """docs/capabilities/SEND.md: every attempt leaves a record the sender can look up. Until the desk
+    has answered, the record must not claim the message failed: it may be in the line."""
+    from frontdesk import Desk
+
+    wren, ash = await people("wren"), await people("ash")
+    real_send = ash.matrix.send
+
+    async def dies_after_the_desk_took_it(room, event_type, txn_id, content, **kw):
+        await real_send(room, event_type, txn_id, content, **kw)
+        raise _HostDied()
+
+    ash.matrix.send = dies_after_the_desk_took_it
+    with pytest.raises(_HostDied):
+        await ash.send(wren.me, "is the deploy done?", conversation="ash-1")
+    [record] = [a for a in ash.attempts() if a["kind"] == wire.MESSAGE]
+
+    reborn = Desk(ash.state_dir)
+    try:
+        trace = await reborn.trace(record["msg_id"])
+        assert trace.state != wire.FAILED   # the desk has it; "failed" would have the sender send it again
+        assert trace.state == wire.UNKNOWN
+    finally:
+        await reborn.close()
+
+
+async def test_saying_down_a_line_that_does_not_exist_is_a_failure_not_an_unknown(people):
+    ash = await people("ash")
+    receipt = await ash.say("!nowhere:example", "hello")
+    assert receipt.state == wire.FAILED and receipt.reason == "no such line"
+    [record] = [a for a in ash.attempts() if a["msg_id"] == receipt.id]
+    assert record["state"] == wire.FAILED
+    assert (await ash.trace(receipt.id)).state == wire.FAILED

@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Awaitable, Callable, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 import httpx
 
 from frontdesk import wire
 from frontdesk.matrix import MatrixError
-from frontdesk.wire import Arrival, Receipt, now_ms
+from frontdesk.wire import Arrival, DeskError, Receipt, now_ms
+
+if TYPE_CHECKING:
+    from frontdesk.desk import Desk
 
 logger = logging.getLogger("frontdesk")
 
@@ -35,60 +38,36 @@ def _verdict(text: str) -> Optional[bool]:
 
 
 class Requests:
-    # Provided by Desk.
-    ledger: Any
-    matrix: Any
-    me: str
-    _handlers: dict[str, Handler]
+    """Request (docs/capabilities/REQUEST.md) for one identity, built on its desk's public side:
+    a request, an agreement and an outcome are each sent as a message."""
 
-    # ── listing offers ───────────────────────────────────────────────────────────────────────────
-
-    async def offer(self, name: str, description: str, handler: Optional[Handler] = None, *,
-                    needs: Optional[dict] = None, agree: str = wire.AGREE_NOBODY,
-                    survives_restart: bool = False) -> None:
-        """List something this identity will do when asked. ``handler`` is what it does, fixed
-        here by the host: whoever asks supplies only ``needs``. ``agree`` is who must agree first:
-        "nobody", "self", or the name of another listed identity."""
-        if agree not in (wire.AGREE_NOBODY, wire.AGREE_SELF):
-            approver = await self._listing(self._resolve(agree), fresh=True)  # type: ignore[attr-defined]
-            if approver is None:
-                from frontdesk.desk import DeskError
-                raise DeskError(f"{agree!r} is not listed, so they can't be the one who agrees")
-            agree = approver.identity
-        self.ledger.put_offer(name, description, needs or {}, agree, survives_restart)
-        if handler is not None:
-            self._handlers[name] = handler
-        await self._publish()  # type: ignore[attr-defined]
-
-    async def withdraw_offer(self, name: str) -> None:
-        self.ledger.drop_offer(name)
-        self._handlers.pop(name, None)
-        await self._publish()  # type: ignore[attr-defined]
+    def __init__(self, desk: "Desk"):
+        self.desk = desk
+        self.ledger = desk.ledger
 
     # ── asking ───────────────────────────────────────────────────────────────────────────────────
 
     async def ask(self, to: str, offer: str, args: Optional[dict] = None, *, conversation: Optional[str] = None,
-                  channel: Optional[str] = None, expires_in_s: float = DEFAULT_REQUEST_MS / 1000) -> Receipt:
+                  channel: Optional[str] = None, expires_in_s: Optional[float] = None) -> Receipt:
         """Ask for someone's offer. The outcome arrives later as a message of its own."""
-        peer = self._resolve(to)  # type: ignore[attr-defined]
         try:
-            listing = await self._listing(peer, fresh=True)  # type: ignore[attr-defined]
+            listing = await self.desk.lookup(to)
         except (MatrixError, httpx.HTTPError):
             listing = None  # send() reports the register being unreachable
         if listing is not None and offer not in listing.offers:
             msg_id = wire.new_id()
-            self.ledger.log_attempt(msg_id, wire.REQUEST, peer, channel, None, None)
+            self.ledger.log_attempt(msg_id, wire.REQUEST, listing.identity, channel, None, None)
             reason = f"{listing.name} lists no offer called {offer!r}"
             self.ledger.update_attempt(msg_id, state=wire.REFUSED, reason=reason)
             return Receipt(id=msg_id, state=wire.REFUSED, reason=reason)
         text = f"Request: {offer}" + (f" {json.dumps(args)}" if args else "")
-        return await self.send(  # type: ignore[attr-defined]
+        lasts_ms = DEFAULT_REQUEST_MS if expires_in_s is None else int(expires_in_s * 1000)
+        return await self.desk.send(
             to, text, conversation=conversation, channel=channel, kind=wire.REQUEST, offer=offer,
-            args=args or {}, expires=now_ms() + int(expires_in_s * 1000))
+            args=args or {}, expires=now_ms() + lasts_ms)
 
     async def settle(self, ref: str, agree: bool, reason: str = "") -> None:
         """Agree to or refuse a request that is waiting on this identity."""
-        from frontdesk.desk import DeskError
         request = self.ledger.request(ref)
         if request is not None:
             offer = self.ledger.offer(request["offer"])
@@ -96,13 +75,13 @@ class Requests:
                 raise DeskError("that request is not waiting on you")
             if not agree:
                 await self._outcome(ref, wire.REFUSED, reason or "refused", _OPEN)
-            elif self.ledger.move_request(ref, ("awaiting",), "agreed", agreed_by=self.me):
+            elif self.ledger.move_request(ref, ("awaiting",), "agreed", agreed_by=self.desk.me):
                 await self._perform(ref)
             return
         row = self.ledger.inbox_by_msg(ref)
         if row is None or json.loads(row["arrival"]).get("kind") != wire.AGREEMENT:
             raise DeskError(f"nothing waiting on you with ref {ref!r}")
-        receipt = await self.send(  # type: ignore[attr-defined]
+        receipt = await self.desk.send(
             "", "yes" if agree else f"no: {reason}" if reason else "no", answers=row["event_id"],
             kind=wire.AGREEMENT, agree=agree)
         if receipt.state != wire.ACCEPTED:
@@ -110,7 +89,7 @@ class Requests:
 
     # ── being asked ──────────────────────────────────────────────────────────────────────────────
 
-    async def _accept_request(self, arrival: Arrival) -> bool:
+    async def received(self, arrival: Arrival) -> bool:
         """Record a request and start it on its way. True when it must now be shown to this
         identity's own conversation so the agent can agree or refuse."""
         if arrival.request is None:
@@ -120,13 +99,13 @@ class Requests:
                                 arrival.expires or now_ms() + DEFAULT_REQUEST_MS)
         offer = self.ledger.offer(name)
         if offer is None:
-            await self._status(arrival.line, ref, wire.ARRIVED)  # type: ignore[attr-defined]
+            await self.desk.report_state(arrival.line, ref, wire.ARRIVED)
             await self._outcome(ref, wire.REFUSED, f"no offer called {name!r} is listed", _OPEN, arrival=arrival)
             return False
         if offer["agree"] == wire.AGREE_SELF:
             self.ledger.move_request(ref, ("received",), "awaiting")
             return True
-        await self._status(arrival.line, ref, wire.ARRIVED)  # type: ignore[attr-defined]
+        await self.desk.report_state(arrival.line, ref, wire.ARRIVED)
         if offer["agree"] == wire.AGREE_NOBODY:
             self.ledger.move_request(ref, ("received",), "agreed", agreed_by=wire.AGREE_NOBODY)
             await self._perform(ref, arrival=arrival)
@@ -138,25 +117,31 @@ class Requests:
     async def _ask_agreement(self, ref: str, arrival: Arrival, approver: str) -> None:
         """Agreement is another identity's to give: asking for it is itself a message to them."""
         try:
-            listing = await self._listing(approver, fresh=True)  # type: ignore[attr-defined]
+            listing = await self.desk.lookup(approver)
             if listing is None:
                 await self._outcome(ref, wire.FAILED, "whoever must agree is no longer listed", _OPEN, arrival=arrival)
                 return
-            room = await self._open_line(  # type: ignore[attr-defined]
+            room = await self.desk.open_line(
                 approver, listing, wire.DEFAULT_CHANNEL, wire.DEFAULT_CHANNEL, agreement_for=ref)
             request = arrival.request or {}
             needs = f" with {json.dumps(request['args'])}" if request.get("args") else ""
-            text = (f"{arrival.sender_name} asks {self.profile.get('name')} to do "  # type: ignore[attr-defined]
+            text = (f"{arrival.sender_name} asks {self.desk.profile.get('name')} to do "
                     f"\"{request.get('offer')}\"{needs}. Answer yes or no.")
-            await self.matrix.send(room, "m.room.message", f"agr-{ref}", wire.message_content(
-                text, kind=wire.AGREEMENT, to=None, sender_channel=None, arrive=wire.WAKE,
-                expires=self.ledger.request(ref)["expires"], offer=request.get("offer"),
-                args=request.get("args") or {}, asker=arrival.sender, request=ref))
-            self.ledger._run("UPDATE requests SET agreement_room=? WHERE ref=?", room, ref)
+            expires = self.ledger.request(ref)["expires"]
+            asked = await self.desk.post(
+                room, f"agr-{ref}", wire.message_content(
+                    text, kind=wire.AGREEMENT, to=None, sender_channel=None, arrive=wire.WAKE, expires=expires,
+                    offer=request.get("offer"), args=request.get("args") or {}, asker=arrival.sender, request=ref),
+                kind=wire.AGREEMENT, to_identity=approver, to_channel=None, from_channel=None, expires=expires)
+            if asked.state == wire.FAILED:
+                await self._outcome(ref, wire.FAILED, f"could not ask for agreement: {asked.reason}", _OPEN,
+                                    arrival=arrival)
+                return
+            self.ledger.note_agreement_room(ref, room)
         except (MatrixError, httpx.HTTPError) as exc:
             await self._outcome(ref, wire.FAILED, f"could not ask for agreement: {exc}", _OPEN, arrival=arrival)
 
-    async def _agreement_answer(self, line: Any, event: dict, block: dict) -> None:
+    async def agreement_answered(self, line: Any, event: dict, block: dict) -> None:
         """An answer from whoever the offer names. One answer settles it; nobody else's counts
         (the line holds only them, and the desk verified the sender)."""
         ref = line["agreement_for"]
@@ -166,17 +151,19 @@ class Requests:
         body = str(event["content"].get("body") or "")
         verdict = block["agree"] if isinstance(block.get("agree"), bool) else _verdict(body)
         if verdict is None:
-            await self.matrix.send(line["room_id"], "m.room.message", f"hint-{event['event_id']}", wire.message_content(
-                "That wasn't a yes or a no, so nothing was decided. Answer yes or no.",
-                to=None, sender_channel=None, arrive=wire.WAIT))
+            await self.desk.post(
+                line["room_id"], f"hint-{event['event_id']}", wire.message_content(
+                    "That wasn't a yes or a no, so nothing was decided. Answer yes or no.",
+                    to=None, sender_channel=None, arrive=wire.WAIT),
+                kind=wire.MESSAGE, to_identity=line["peer"], to_channel=None, from_channel=None)
             return
-        await self._status(line["room_id"], event["event_id"], wire.TAKEN_IN)  # type: ignore[attr-defined]
+        await self.desk.report_state(line["room_id"], event["event_id"], wire.TAKEN_IN)
         if not verdict:
             await self._outcome(ref, wire.REFUSED, body, ("awaiting",))
         elif self.ledger.move_request(ref, ("awaiting",), "agreed", agreed_by=event["sender"]):
             await self._perform(ref)
 
-    async def _withdrawn(self, arrival: Arrival) -> None:
+    async def withdrawn(self, arrival: Arrival) -> None:
         request = self.ledger.request(arrival.answers) if arrival.answers else None
         if request is not None and request["asker"] == arrival.sender:
             await self._outcome(request["ref"], wire.REFUSED, "withdrawn by whoever asked", _OPEN)
@@ -190,7 +177,7 @@ class Requests:
             return
         if not self.ledger.move_request(ref, ("agreed",), "started"):
             return  # someone else has it, or it was withdrawn
-        handler = self._handlers.get(request["offer"])
+        handler = self.desk.handler(request["offer"])
         if handler is None:
             await self._outcome(ref, wire.FAILED, "nothing here can do that right now", ("started",), arrival=arrival)
             return
@@ -216,23 +203,24 @@ class Requests:
         attempt = self.ledger.attempt(msg_id)
         if attempt is not None:
             asker_channel = attempt["to_channel"]
-        else:
-            if asker_channel is None:
-                row = self.ledger.inbox_row(ref)
-                asker_channel = (json.loads(row["arrival"]) if row else {}).get("from_channel")
-            self.ledger.log_attempt(msg_id, wire.OUTCOME, request["asker"], asker_channel, None, None)
+        elif asker_channel is None:
+            row = self.ledger.inbox_row(ref)
+            asker_channel = (json.loads(row["arrival"]) if row else {}).get("from_channel")
         result, detail = request["state"], request["detail"]
         text = f"{request['offer']}: {result.replace('_', ' ')}" + (f". {detail}" if detail else "")
-        try:
-            sent = await self.matrix.send(request["room_id"], "m.room.message", msg_id, wire.message_content(
+        sent = await self.desk.post(
+            request["room_id"], msg_id, wire.message_content(
                 text, kind=wire.OUTCOME, to=asker_channel, sender_channel=None, arrive=wire.WAKE, msg_id=msg_id,
                 answers=ref, result=result, detail=detail, asked=request["asker"], agreed=request["agreed_by"],
-                offer=request["offer"]))
-            self.ledger.update_attempt(msg_id, state=wire.ACCEPTED, reason=None, room_id=request["room_id"],
-                                       event_id=sent["event_id"])
-        except (MatrixError, httpx.HTTPError) as exc:
-            self.ledger.update_attempt(msg_id, reason=f"the desk did not take it: {exc}")
-            logger.warning("outcome of %s could not be sent; it is sent again later: %s", ref, exc)
+                offer=request["offer"]),
+            kind=wire.OUTCOME, to_identity=request["asker"], to_channel=asker_channel, from_channel=None)
+        if sent.state == wire.FAILED:
+            logger.warning("outcome of %s could not be sent; it is sent again later: %s", ref, sent.reason)
+
+    async def tick(self) -> None:
+        """Expire requests whose time has passed, then send every outcome the desk doesn't have yet."""
+        await self._expire_requests()
+        await self._resend_outcomes()
 
     async def _resend_outcomes(self) -> None:
         """Every closed request whose outcome the desk does not have yet: never silence."""
@@ -244,7 +232,7 @@ class Requests:
             if now_ms() > request["expires"]:
                 await self._outcome(request["ref"], wire.EXPIRED, None, _OPEN)
 
-    async def _recover_requests(self) -> None:
+    async def recover(self) -> None:
         """Requests caught mid-flight by a restart. One that had started is never started again."""
         for request in self.ledger.requests_in("started"):
             offer = self.ledger.offer(request["offer"])

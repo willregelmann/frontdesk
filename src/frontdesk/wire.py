@@ -25,6 +25,8 @@ MESSAGE, REQUEST, OUTCOME, AGREEMENT, WITHDRAW = "message", "request", "outcome"
 # States of a message. HELD and WITHDRAWN are kinds of "accepted": the desk has it, the receiver doesn't.
 ACCEPTED, HELD, WITHDRAWN = "accepted", "held", "withdrawn"
 ARRIVED, TAKEN_IN, REFUSED, EXPIRED, FAILED = "arrived", "taken_in", "refused", "expired", "failed"
+# A send was started and the desk has not answered. Only that answer says accepted or failed.
+SENDING, UNKNOWN = "sending", "unknown"
 
 # Outcomes of a request.
 DONE = "done"
@@ -38,6 +40,10 @@ def now_ms() -> int:
 
 def new_id() -> str:
     return uuid.uuid4().hex
+
+
+class DeskError(Exception):
+    """The desk could not do what was asked, and says why."""
 
 
 @dataclass(frozen=True)

@@ -206,9 +206,9 @@ class Ledger:
     def log_attempt(self, msg_id: str, kind: str, to_identity: str, to_channel: Optional[str],
                     from_channel: Optional[str], expires: Optional[int]) -> None:
         self._run("INSERT INTO outbox(msg_id, kind, to_identity, to_channel, from_channel, state, expires, created) "
-                  "VALUES(?, ?, ?, ?, ?, 'failed', ?, ?)", msg_id, kind, to_identity, to_channel, from_channel,
+                  "VALUES(?, ?, ?, ?, ?, 'sending', ?, ?)", msg_id, kind, to_identity, to_channel, from_channel,
                   expires, now_ms())
-        self._run("UPDATE outbox SET reason='not sent' WHERE msg_id=?", msg_id)
+        self._run("UPDATE outbox SET reason='the desk has not answered' WHERE msg_id=?", msg_id)
 
     def update_attempt(self, msg_id: str, **fields: Any) -> None:
         sets = ", ".join(f"{name}=?" for name in fields)
@@ -239,6 +239,9 @@ class Ledger:
 
     def request_by_agreement_room(self, room_id: str) -> Optional[sqlite3.Row]:
         return self._one("SELECT * FROM requests WHERE agreement_room=? AND state='awaiting'", room_id)
+
+    def note_agreement_room(self, ref: str, room_id: str) -> None:
+        self._run("UPDATE requests SET agreement_room=? WHERE ref=?", room_id, ref)
 
     def move_request(self, ref: str, from_states: tuple[str, ...], to_state: str, **fields: Any) -> bool:
         """Advance a request only if it is still in one of ``from_states``. True for exactly one caller."""

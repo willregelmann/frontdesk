@@ -208,7 +208,7 @@ async def test_two_takers_of_one_agreed_request_do_it_once(people):
     ref = ash.ledger.requests_in("awaiting")[0]["ref"]
     ash.ledger.move_request(ref, ("awaiting",), "agreed", agreed_by=ash.me)
 
-    await asyncio.gather(ash._perform(ref), ash._perform(ref))   # e.g. a recovering process and a live one
+    await asyncio.gather(ash.requests._perform(ref), ash.requests._perform(ref))   # e.g. a recovering process and a live one
 
     assert len(calls) == 1
 
@@ -226,3 +226,41 @@ async def test_agreement_that_comes_after_the_request_expired_does_nothing(peopl
     outcome = await outcome_in(wren, "w1")
 
     assert outcome.outcome["result"] == wire.EXPIRED and restart.calls == []
+
+
+# docs/capabilities/SEND.md: every attempt to send leaves a record the sender can look up.
+# docs/capabilities/REQUEST.md: when agreement is another identity's to give, asking for it is itself a message.
+
+def _sent(desk, kind, to):
+    return [a for a in desk.attempts() if a["kind"] == kind and a["to_identity"] == to]
+
+
+async def test_asking_for_agreement_and_the_hint_after_a_non_answer_leave_records_like_any_message(people):
+    will = await people("will", kind="person")
+    wren, ash = await people("wren"), await people("ash")
+    await ash.offer("restart", "Restarts Ash's gateway", Counter(), agree=will.me)
+
+    await wren.ask(ash.me, "restart", conversation="w1")
+    await until(lambda: _sent(ash, wire.AGREEMENT, will.me), ash)
+    [asked] = _sent(ash, wire.AGREEMENT, will.me)
+    assert asked["state"] == wire.ACCEPTED and asked["event_id"]
+    assert (await ash.trace(asked["msg_id"])).state != wire.FAILED
+
+    room = asked["room_id"]
+    await until(lambda: _joined(will, room), ash)
+    await will.matrix.send(room, "m.room.message", "t1", {"msgtype": "m.text", "body": "hmm, why?"})
+    await until(lambda: _sent(ash, wire.MESSAGE, will.me), ash)
+    [hint] = _sent(ash, wire.MESSAGE, will.me)
+    assert hint["state"] == wire.ACCEPTED and hint["room_id"] == room
+
+
+async def test_withdrawing_a_request_leaves_a_record_like_any_message(people):
+    wren, ash = await people("wren"), await people("ash")
+    await ash.offer("restart", "Restarts Ash's gateway", Counter(), agree=wire.AGREE_SELF)
+
+    asked = await wren.ask(ash.me, "restart", conversation="w1")
+    await until(lambda: ash.ledger.requests_in("awaiting"), ash)
+    await wren.take_back(asked.id)
+
+    [withdrawal] = _sent(wren, wire.WITHDRAW, ash.me)
+    assert withdrawal["state"] == wire.ACCEPTED and withdrawal["event_id"]

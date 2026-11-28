@@ -354,3 +354,12 @@ async def test_a_host_that_dies_after_the_desk_took_a_message_does_not_report_it
         assert trace.state == wire.UNKNOWN
     finally:
         await reborn.close()
+
+
+async def test_saying_down_a_line_that_does_not_exist_is_a_failure_not_an_unknown(people):
+    ash = await people("ash")
+    receipt = await ash.say("!nowhere:example", "hello")
+    assert receipt.state == wire.FAILED and receipt.reason == "no such line"
+    [record] = [a for a in ash.attempts() if a["msg_id"] == receipt.id]
+    assert record["state"] == wire.FAILED
+    assert (await ash.trace(receipt.id)).state == wire.FAILED

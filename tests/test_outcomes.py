@@ -76,3 +76,39 @@ async def test_a_restart_between_deciding_an_outcome_and_sending_it_is_not_silen
         assert outcome.outcome["result"] == wire.DONE
     finally:
         await reborn.close()
+
+
+async def test_a_restart_after_the_desk_took_an_outcome_but_before_it_was_recorded_sends_it_once(people):
+    """docs/primitives/MESSAGE.md: a message arrives in its channel once, however many times sending it
+    was retried. The host dies after the desk took the outcome and before its record said so."""
+    wren, ash = await people("wren"), await people("ash")
+    await ash.offer("ping", "Answers pong", _ping)
+    real_send = ash.matrix.send
+
+    async def dies_after_the_desk_took_it(room, event_type, txn_id, content, **kw):
+        sent = await real_send(room, event_type, txn_id, content, **kw)
+        if str(txn_id).startswith("out-"):
+            raise Crash()
+        return sent
+
+    ash.matrix.send = dies_after_the_desk_took_it
+    await wren.ask(ash.me, "ping", conversation="w1")
+    with pytest.raises(Crash):
+        await until(lambda: False, ash)
+    [record] = [a for a in ash.attempts() if a["kind"] == wire.OUTCOME]
+    assert record["event_id"] is None   # the gap: the desk has it, the record doesn't say so
+
+    reborn = Desk(ash.state_dir)
+    reborn.host = RecordingHost()
+    try:
+        await reborn.offer("ping", "Answers pong", _ping)
+        await reborn._recover()
+        await reborn.pump()
+        await until(lambda: _outcomes(wren, "w1"), reborn, wren)
+        await wren.pump()
+        outcomes = [a for a in await wren.take("w1") if a.kind == wire.OUTCOME]
+        assert len(outcomes) == 1
+        [record] = [a for a in reborn.attempts() if a["kind"] == wire.OUTCOME]
+        assert record["state"] == wire.ACCEPTED and record["event_id"]
+    finally:
+        await reborn.close()

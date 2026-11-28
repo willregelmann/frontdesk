@@ -409,7 +409,12 @@ class Desk:
                     delay_ms: Optional[int] = None, held_until: Optional[int] = None) -> Receipt:
         """Put a message on the desk. Every message this identity sends goes through here, so each
         attempt leaves a record (docs/capabilities/SEND.md). ``msg_id`` is the transaction id: sending
-        again with the same one never puts a second message in the line (docs/primitives/MESSAGE.md)."""
+        again with the same one never puts a second message in the line (docs/primitives/MESSAGE.md).
+
+        The record starts as failed, "not sent", and says accepted only once the desk has answered. A
+        host that stops between the two leaves "failed" on a message the desk may have taken. Outcomes
+        close that gap: they are sent again with the same id after a restart, and the desk keeps the
+        first. Nothing re-sends any other kind, so its record can stay wrong."""
         if self.ledger.attempt(msg_id) is None:
             self.ledger.log_attempt(msg_id, kind, to_identity, to_channel, from_channel, expires)
         try:
